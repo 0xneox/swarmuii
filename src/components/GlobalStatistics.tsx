@@ -23,6 +23,7 @@ const mockStats = {
   activeNodes: 1247,
   networkLoad: 78,
   totalEarnings: 125000.5,
+  globalComputeGenerated: 1247.0,
 };
 
 const mockLeaderboard = [
@@ -109,48 +110,70 @@ interface LeaderboardEntry {
 
 export const GlobalStatistics = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [leaderboard, setLeaderboard] =
-    useState<LeaderboardEntry[]>(mockLeaderboard);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [currentUserRank, setCurrentUserRank] =
     useState<LeaderboardEntry | null>(null);
-  const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false);
-  const [totalEarnings, setTotalEarnings] = useState(mockStats.totalEarnings);
-  const [stats, setStats] = useState(mockStats);
+  const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(true);
+  const [totalEarnings, setTotalEarnings] = useState(0);
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    totalEarnings: 0,
+    globalComputeGenerated: 0,
+    totalTasks: 0
+  });
 
   // Mock user profile for demonstration
   const userProfile = { id: "user123", user_name: "CurrentUser" };
 
-  // Fetch network statistics (mock implementation)
+  // Fetch network statistics from real API
   const fetchNetworkStats = async () => {
-    // Simulate API call delay
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    return mockStats;
+    const response = await fetch('/api/global-statistics', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API call failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data.stats;
   };
 
-  // Fetch leaderboard data (mock implementation)
+  // Fetch leaderboard data from real API
   const fetchLeaderboard = async () => {
     try {
       setIsLeaderboardLoading(true);
 
-      // Simulate API call delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      setLeaderboard(mockLeaderboard);
-      setTotalEarnings(mockStats.totalEarnings);
-
-      // Set mock current user rank
-      setCurrentUserRank({
-        user_id: "user123",
-        username: "CurrentUser",
-        total_earnings: 3456.78,
-        rank: 15,
-        task_count: 234,
+      const response = await fetch('/api/global-statistics', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      setLeaderboard(data.leaderboard || mockLeaderboard);
+      setTotalEarnings(data.stats?.totalEarnings || mockStats.totalEarnings);
+      setCurrentUserRank(data.currentUserRank || null);
+      
+      // Also update stats if we got them
+      if (data.stats) {
+        setStats(data.stats);
+      }
 
       setIsLeaderboardLoading(false);
     } catch (error) {
       console.error("Error fetching leaderboard data:", error);
       setIsLeaderboardLoading(false);
+      // Don't fall back to mock data - keep current state
     }
   };
 
@@ -167,34 +190,62 @@ export const GlobalStatistics = () => {
     }
   };
 
+  const handleRefresh = useCallback(async () => {
+    try {
+      setIsRefreshing(true);
+      setIsLeaderboardLoading(true);
+
+      // Single API call to get all data
+      const response = await fetch('/api/global-statistics', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Update all state with fresh data
+      if (data.stats) {
+        setStats(data.stats);
+        setTotalEarnings(data.stats.totalEarnings);
+      }
+      
+      if (data.leaderboard) {
+        setLeaderboard(data.leaderboard);
+      }
+      
+      if (data.currentUserRank) {
+        setCurrentUserRank(data.currentUserRank);
+      }
+
+      console.log("Data refreshed successfully");
+    } catch (error) {
+      console.error("Error refreshing data:", error);
+      // Don't fall back to mock data - keep current state or show error
+    } finally {
+      setIsRefreshing(false);
+      setIsLeaderboardLoading(false);
+    }
+  }, []);
+
   // Load initial data on component mount
   useEffect(() => {
     const initialLoad = async () => {
       try {
-        await updateStats();
-        await fetchLeaderboard();
+        // Use the optimized refresh function for initial load
+        await handleRefresh();
       } catch (error) {
         console.error("Error during initial data load:", error);
       }
     };
 
     initialLoad();
-  }, []);
-
-  const handleRefresh = useCallback(async () => {
-    try {
-      setIsRefreshing(true);
-
-      // Fetch all data in parallel
-      await Promise.all([updateStats(), fetchLeaderboard()]);
-
-      setIsRefreshing(false);
-      console.log("Data refreshed successfully");
-    } catch (error) {
-      console.error("Error refreshing data:", error);
-      setIsRefreshing(false);
-    }
-  }, []);
+  }, [handleRefresh]);
 
   // Format currency for display
   const formatCurrency = (amount: number) => {
@@ -452,7 +503,7 @@ export const GlobalStatistics = () => {
                 Global Compute Generated
               </span>
               <span className="text-xl font-bold text-white">
-                {stats.activeNodes.toLocaleString(undefined, {
+                {stats.globalComputeGenerated.toLocaleString(undefined, {
                   maximumFractionDigits: 2,
                 })}{" "}
                 TFLOPs
