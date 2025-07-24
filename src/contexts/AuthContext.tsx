@@ -128,106 +128,141 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Check for existing session on mount
   useEffect(() => {
+    let isMounted = true;
     console.log("🔄 Initializing auth context");
+    
     const initializeAuth = async () => {
       try {
-        // Get current session
+        // Prevent race conditions by checking mount status
+        if (!isMounted) return;
+        
         console.log("🔍 Checking for existing session");
         const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
         
+        if (!isMounted) return;
+        
         if (sessionError) {
           console.error("❌ Session error:", sessionError);
-          throw sessionError;
+          // Don't throw error, just set loading to false
+          setIsLoading(false);
+          return;
         }
 
         if (currentSession) {
-          console.log("✅ Session found:", currentSession);
+          console.log("✅ Session found:", currentSession.user?.email);
           setSession(currentSession);
           setUser(currentSession.user);
 
-          console.log("👤 Current user:", currentSession.user);
-          
-          // Get or create user profile
-          const userProfile = await fetchUserProfile(currentSession.user.id);
-          
-          if (userProfile) {
-            console.log("✅ Existing user profile found:", userProfile);
-            setProfile(userProfile);
-          } else {
-            // Create user profile if it doesn't exist
-            console.log("⚠️ No user profile found, creating new one");
-            const newProfile = await createUserProfile(currentSession.user.id, {
-              email: currentSession.user.email!,
-              user_name: currentSession.user.user_metadata.username || currentSession.user.email!.split('@')[0]
-            });
-            
-            if (newProfile) {
-              console.log("✅ New profile created:", newProfile);
-              setProfile(newProfile);
-            } else {
-              console.error("❌ Failed to create new profile");
-            }
-          }
-        } else {
-          console.log("ℹ️ No active session found");
-        }
-      } catch (error) {
-        console.error("❌ Error initializing auth:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    initializeAuth();
-
-    // Set up auth state change listener
-    console.log("📡 Setting up auth state change listener");
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event: AuthChangeEvent, currentSession: Session | null) => {
-        console.log("🔔 Auth state change:", event, currentSession?.user?.email);
-        setSession(currentSession);
-        setUser(currentSession?.user || null);
-
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-          console.log("🔑 User signed in:", currentSession?.user?.email);
-          if (currentSession?.user) {
-            // Get or create user profile when signed in
+          // Only fetch profile if we don't already have one for this user
+          if (!profile || profile.id !== currentSession.user.id) {
+            console.log("👤 Fetching user profile for:", currentSession.user.email);
             const userProfile = await fetchUserProfile(currentSession.user.id);
             
+            if (!isMounted) return;
+            
             if (userProfile) {
-              console.log("✅ User profile retrieved after sign-in:", userProfile);
+              console.log("✅ User profile found:", userProfile.user_name);
               setProfile(userProfile);
             } else {
-              // Create profile if it doesn't exist
-              console.log("⚠️ No user profile found after sign-in, creating new one");
+              console.log("⚠️ No user profile found, creating new one");
               const newProfile = await createUserProfile(currentSession.user.id, {
                 email: currentSession.user.email!,
                 user_name: currentSession.user.user_metadata.username || currentSession.user.email!.split('@')[0]
               });
               
+              if (!isMounted) return;
+              
               if (newProfile) {
-                console.log("✅ New profile created after sign-in:", newProfile);
+                console.log("✅ New profile created:", newProfile.user_name);
                 setProfile(newProfile);
               } else {
-                console.error("❌ Failed to create profile after sign-in");
+                console.error("❌ Failed to create new profile");
               }
             }
           }
+        } else {
+          console.log("ℹ️ No active session found");
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+        }
+      } catch (error) {
+        console.error("❌ Error initializing auth:", error);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    initializeAuth();
+
+    // Set up auth state change listener with debouncing
+    console.log("📡 Setting up auth state change listener");
+    let lastEventTime = 0;
+    const DEBOUNCE_MS = 100; // Prevent rapid-fire events
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event: AuthChangeEvent, currentSession: Session | null) => {
+        const now = Date.now();
+        if (now - lastEventTime < DEBOUNCE_MS) {
+          console.log("🔕 Debouncing auth state change");
+          return;
+        }
+        lastEventTime = now;
+        
+        if (!isMounted) return;
+        
+        console.log("🔔 Auth state change:", event, currentSession?.user?.email);
+        setSession(currentSession);
+        setUser(currentSession?.user || null);
+
+        if (event === 'SIGNED_IN') {
+          console.log("🔑 User signed in:", currentSession?.user?.email);
+          if (currentSession?.user) {
+            const userProfile = await fetchUserProfile(currentSession.user.id);
+            
+            if (!isMounted) return;
+            
+            if (userProfile) {
+              console.log("✅ Profile retrieved after sign-in:", userProfile.user_name);
+              setProfile(userProfile);
+            } else {
+              console.log("⚠️ Creating profile after sign-in");
+              const newProfile = await createUserProfile(currentSession.user.id, {
+                email: currentSession.user.email!,
+                user_name: currentSession.user.user_metadata.username || currentSession.user.email!.split('@')[0]
+              });
+              
+              if (isMounted && newProfile) {
+                console.log("✅ Profile created after sign-in:", newProfile.user_name);
+                setProfile(newProfile);
+              }
+            }
+          }
+          // Only refresh on actual sign-in, not token refresh
           router.refresh();
+        } else if (event === 'TOKEN_REFRESHED') {
+          // Don't fetch profile again on token refresh if we already have it
+          console.log("🔄 Token refreshed for:", currentSession?.user?.email);
+          // No additional actions needed - session and user are already updated
         } else if (event === 'SIGNED_OUT') {
           console.log("🚪 User signed out");
           setProfile(null);
         }
         
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     );
 
     return () => {
       console.log("🧹 Cleaning up auth listener");
+      isMounted = false;
       subscription.unsubscribe();
     };
-  }, [supabase, router]);
+  }, [supabase, router]); // Removed profile from dependencies to prevent loops
 
   const login = async (email: string, password: string) => {
     console.log("🔑 Login attempt for:", email);

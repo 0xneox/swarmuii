@@ -203,28 +203,52 @@ const taskSlice = createSlice({
           logger.log(`Task ${task.type} completed. Total completed tasks:`, state.completedTasksForStats);
         }
       });
-      
+
       saveTaskState(state);
     },
-    
+
     clearCompletedTasks: (state) => {
-      // Keep only recent completed tasks (last 10)
+      // ONLY clear completed tasks when manually claimed or when user stops node
+      // DO NOT auto-clear completed tasks - they are unclaimed rewards!
+      // This action should only be called after successful reward claiming
+      
       const completedTasks = state.tasks.filter(task => task.status === 'completed');
-      if (completedTasks.length > 10) {
-        const tasksToRemove = completedTasks.slice(0, completedTasks.length - 10);
-        tasksToRemove.forEach(taskToRemove => {
-          const index = state.tasks.findIndex(t => t.id === taskToRemove.id);
-          if (index !== -1) {
-            state.tasks.splice(index, 1);
-            state.stats.completed--;
-          }
-        });
+      
+      if (completedTasks.length > 0) {
+        // Remove all completed tasks (they have been claimed)
+        state.tasks = state.tasks.filter(task => task.status !== 'completed');
         
-        logger.log(`Cleared ${tasksToRemove.length} old completed tasks`);
+        // Update stats
+        state.stats.completed = 0;
+        
+        logger.log(`Cleared ${completedTasks.length} completed tasks after successful claim`);
         saveTaskState(state);
       }
     },
-    
+
+    // Clear completed tasks when node is stopped (before claiming)
+    clearCompletedTasksOnNodeStop: (state) => {
+      // This is called when user stops the node but BEFORE claiming rewards
+      // We keep the completed tasks so they can be claimed
+      const oldFailedTasks = state.tasks.filter(task => 
+        task.status === 'failed' && 
+        task.updated_at && 
+        new Date(task.updated_at).getTime() < Date.now() - (30 * 60 * 1000) // 30 minutes old
+      );
+      
+      if (oldFailedTasks.length > 0) {
+        state.tasks = state.tasks.filter(task => 
+          !oldFailedTasks.some(failedTask => failedTask.id === task.id)
+        );
+        state.stats.failed -= oldFailedTasks.length;
+        
+        logger.log(`Cleared ${oldFailedTasks.length} old failed tasks on node stop`);
+        saveTaskState(state);
+      }
+      
+      // DO NOT clear completed tasks - they are unclaimed rewards!
+    },
+
     // Add action to reset completed tasks for stats (after successful backend update)
     resetCompletedTasksForStats: (state) => {
       const previousTasks = { ...state.completedTasksForStats };
@@ -254,10 +278,11 @@ const taskSlice = createSlice({
 });
 
 export const { 
-  generateTasks, 
-  startProcessingTasks, 
-  updateProcessingTasks, 
-  clearCompletedTasks, 
+  generateTasks,
+  startProcessingTasks,
+  updateProcessingTasks,
+  clearCompletedTasks,
+  clearCompletedTasksOnNodeStop,
   resetTasks, 
   setAutoMode,
   resetCompletedTasksForStats

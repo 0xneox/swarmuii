@@ -125,8 +125,8 @@ export const useNodeUptime = () => {
     
     intervalRef.current = setInterval(() => {
       const currentTime = Date.now();
-      // Only save every 30 seconds to avoid excessive writes
-      if (currentTime - lastSaveRef.current > 30000) {
+      // Only save every 60 seconds to avoid excessive writes - MEMORY OPTIMIZATION
+      if (currentTime - lastSaveRef.current > 60000) {
         setDeviceUptimes(current => {
           const updated = new Map(current);
           const device = updated.get(deviceId);
@@ -144,7 +144,7 @@ export const useNodeUptime = () => {
           return updated;
         });
       }
-    }, 1000);
+    }, 10000); // Reduced frequency from 1s to 10s - MAJOR MEMORY IMPROVEMENT
   }, [saveToStorage]);
 
   // Stop tracking and update server

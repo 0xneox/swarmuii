@@ -3,6 +3,7 @@ import { createClient } from "@/utils/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppDispatch } from "@/lib/store";
 import { resetSessionEarnings, updateTotalEarnings } from "@/lib/store/slices/earningsSlice";
+import { clearCompletedTasks } from "@/lib/store/slices/taskSlice";
 
 // External API endpoint constants are no longer needed as we use internal API routes
 
@@ -102,6 +103,8 @@ export const useEarnings = () => {
         dispatch(updateTotalEarnings(result.data.new_total));
         // Reset session earnings in Redux store after successful claim
         dispatch(resetSessionEarnings());
+        // Clear completed tasks since they have been claimed
+        dispatch(clearCompletedTasks());
         setClaimSuccess(true);
         return result.data;
       } else {

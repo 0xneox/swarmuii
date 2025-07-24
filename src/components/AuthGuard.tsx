@@ -1,9 +1,8 @@
 "use client";
 
-import React from 'react';
+import React, { useState, memo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { AuthModal } from '@/components/auth/AuthModal';
-import { useState } from 'react';
 import { LogIn } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -14,7 +13,7 @@ interface AuthGuardProps {
   fallback?: React.ReactNode;
 }
 
-export function AuthGuard({ 
+export const AuthGuard = memo(function AuthGuard({ 
   children, 
   requireAuth = true, 
   showLoginPrompt = true,
@@ -27,7 +26,10 @@ export function AuthGuard({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[200px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        <div className="flex flex-col items-center gap-3">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          <p className="text-sm text-gray-400">Loading...</p>
+        </div>
       </div>
     );
   }
@@ -84,4 +86,4 @@ export function AuthGuard({
 
   // User is authenticated, show children
   return <>{children}</>;
-}
+});
