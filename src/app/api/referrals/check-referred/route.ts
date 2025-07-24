@@ -34,13 +34,18 @@ export async function GET(request: NextRequest) {
     // If referralData exists, get the referrer's profile info
     let referrerName = 'Anonymous User';
     if (referralData) {
-      const { data: referrerProfile } = await supabase
+      
+      const { data: referrerProfile, error: profileError } = await supabase
         .from('user_profiles')
-        .select('full_name, email')
+        .select('user_name, email')
         .eq('id', referralData.referrer_id)
         .maybeSingle();
       
-      referrerName = referrerProfile?.full_name || referrerProfile?.email || 'Anonymous User';
+      if (referrerProfile) {
+        referrerName = referrerProfile.user_name || 
+                      referrerProfile.email || 
+                      'Anonymous User';
+      }
     }
 
     // If referralData exists, user has been referred
