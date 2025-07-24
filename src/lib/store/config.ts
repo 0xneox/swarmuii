@@ -80,14 +80,14 @@ export const TASK_CONFIG = {
     }
   },
   
-  // Task generation settings
+  // Task generation settings - OPTIMIZED FOR MEMORY
   GENERATION: {
-    MIN_TASKS: 2,
-    MAX_TASKS: 5,
-    GENERATION_INTERVAL: 30000, // 30 seconds between generations
-    PROCESSING_INTERVAL: 1000,  // 1 second for processing updates
+    MIN_TASKS: 1,
+    MAX_TASKS: 3, // Reduced from 5 to 3
+    GENERATION_INTERVAL: 60000, // Increased to 60 seconds (was 30)
+    PROCESSING_INTERVAL: 5000,  // Increased to 5 seconds (was 1) - CRITICAL MEMORY FIX
     MAX_CONCURRENT_PROCESSING: 1, // Max tasks processing at once (only 1 task)
-    PENDING_QUEUE_SIZE: 4 // Max pending tasks
+    PENDING_QUEUE_SIZE: 2 // Reduced from 4 to 2
   }
 };
 

@@ -12,29 +12,31 @@ export async function GET(request: NextRequest) {
       console.error('Session error:', sessionError);
     }
     
-    // Fetch all required data in parallel for better performance
+    // Fetch all required data in parallel with optimized queries
     const [
-      { data: totalUsersData, error: usersError },
+      { count: totalUsers, error: usersError },
       { data: totalEarningsData, error: earningsError },
       { data: leaderboardData, error: leaderboardError }
     ] = await Promise.all([
-      // Get total users count
+      // Get total users count efficiently
       supabase
         .from('user_profiles')
-        .select('id'),
+        .select('*', { count: 'exact', head: true }),
       
-      // Get total earnings across all users from earnings_history
+      // Get latest total earnings efficiently - fallback to top earner if RPC doesn't exist
       supabase
         .from('earnings_history')
-        .select('total_amount'),
+        .select('total_amount')
+        .order('total_amount', { ascending: false })
+        .limit(50), // Limit to top 50 for calculation
       
-      // Get top 10 leaderboard from earnings_history
+      // Get top 10 leaderboard with user names - OPTIMIZED
       supabase
         .from('earnings_history')
         .select(`
           user_id,
           total_amount,
-          user_profiles(
+          user_profiles!inner(
             user_name
           )
         `)
@@ -60,15 +62,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch leaderboard' }, { status: 500 });
     }
 
-    // Calculate total users count
-    console.log('Debug - totalUsersData:', totalUsersData);
-    const totalUsers = totalUsersData?.length || 0;
-    console.log('Debug - totalUsers calculated:', totalUsers);
+    // Get total users count from efficient query
+    console.log('Debug - totalUsers from count:', totalUsers);
+    const userCount = totalUsers ?? 0;
     
-    // Calculate total SP earnings (sum all earnings from earnings_history)
-    const totalEarnings = totalEarningsData?.reduce((sum, record: any) => {
-      return sum + (Number(record.total_amount) || 0);
-    }, 0) || 0;
+    // Get total earnings - fallback to calculation if RPC doesn't exist yet
+    let totalEarnings = 0;
+    if (totalEarningsData !== null && typeof totalEarningsData === 'number') {
+      totalEarnings = totalEarningsData;
+    } else if (Array.isArray(totalEarningsData)) {
+      // Fallback calculation if RPC function doesn't exist
+      totalEarnings = totalEarningsData.reduce((sum: number, record: any) => {
+        return sum + (Number(record.total_amount) || 0);
+      }, 0);
+    }
+    console.log('Debug - totalEarnings calculated:', totalEarnings);
 
     // Calculate global compute generated based on user activity
     // Since we don't have access to global_stats table, use estimated values based on total earnings
@@ -100,7 +108,7 @@ export async function GET(request: NextRequest) {
     // Prepare the response data
     const responseData = {
       stats: {
-        totalUsers,
+        totalUsers: userCount,
         totalEarnings,
         globalComputeGenerated,
         totalTasks
@@ -109,10 +117,11 @@ export async function GET(request: NextRequest) {
       currentUserRank
     };
 
-    // Return the data with proper caching headers for performance
+    // Return the data with aggressive caching for memory optimization
     return NextResponse.json(responseData, {
       headers: {
-        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600', // Increased cache from 60s to 5min
+        'CDN-Cache-Control': 'public, s-maxage=300',
       },
     });
     

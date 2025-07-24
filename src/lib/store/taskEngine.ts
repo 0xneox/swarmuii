@@ -1,5 +1,5 @@
 import { AppDispatch, store } from './index';
-import { generateTasks, startProcessingTasks, updateProcessingTasks, clearCompletedTasks, resetTasks } from './slices/taskSlice';
+import { generateTasks, startProcessingTasks, updateProcessingTasks, resetTasks } from './slices/taskSlice';
 import { updateUptime } from './slices/nodeSlice';
 import { addReward } from './slices/earningsSlice';
 import { TASK_CONFIG, generateTaskId, logger } from './config';
@@ -70,10 +70,9 @@ class TaskProcessingEngine {
     // 3. Update processing tasks and complete them
     this.updateAndCompleteProcessingTasks(hardwareTier);
 
-    // 4. Clean up old completed tasks periodically
-    if (tasks.stats.completed > 20) {
-      this.dispatch(clearCompletedTasks());
-    }
+    // 4. DO NOT auto-cleanup completed tasks - they are unclaimed rewards!
+    // Completed tasks should only be cleared when user manually claims rewards
+    // or when the node is stopped.
   }
 
   private updateAndCompleteProcessingTasks(hardwareTier: 'webgpu' | 'wasm' | 'webgl' | 'cpu') {

@@ -383,6 +383,21 @@ export const NodeControlPanel = () => {
         
         setNodes(mappedNodes);
         
+        // Register existing devices in Redux store so they can be started without hardware scan
+        if (devices.length > 0 && !node.isRegistered) {
+          const firstDevice = devices[0];
+          const hardwareInfo: HardwareInfo = {
+            gpuInfo: firstDevice.gpu_model,
+            rewardTier: firstDevice.reward_tier || 'cpu',
+            deviceType: firstDevice.device_type,
+            // Add other required fields with reasonable defaults
+            cpuCores: 4, // Default values since this info isn't stored in DB
+            deviceMemory: '8GB',
+            deviceGroup: firstDevice.device_type === 'mobile' || firstDevice.device_type === 'tablet' ? 'mobile_tablet' : 'desktop_laptop'
+          };
+          dispatch(registerDevice(hardwareInfo));
+        }
+        
         // Initialize device uptimes with server data (only once per device)
         mappedNodes.forEach(node => {
           if (!initializedDevicesRef.current.has(node.id)) {
@@ -812,7 +827,11 @@ export const NodeControlPanel = () => {
           </div>
 
           <div 
-            className="p-4 sm:p-6 flex flex-col rounded-xl sm:rounded-2xl border border-blue-800/30 relative overflow-hidden gap-4 bg-blue-900/10"
+            className={`p-4 sm:p-6 flex flex-col rounded-xl sm:rounded-2xl border relative overflow-hidden gap-4 transition-all duration-300 ${
+              (sessionEarnings + dbUnclaimedRewards) > 0 
+                ? 'border-yellow-500/30 bg-yellow-900/10'
+                : 'border-blue-800/30 bg-blue-900/10'
+            }`}
           >
             <div className="flex flex-row items-center justify-between">
               <div className="flex items-center gap-4 z-10">
@@ -823,24 +842,44 @@ export const NodeControlPanel = () => {
                 />
                 <div className="flex flex-col">
                   <span className="text-white/90 text-2xl whitespace-nowrap transition-all duration-500">
-                    Total Earnings
+                    {(sessionEarnings + dbUnclaimedRewards) > 0 ? 'Rewards Available' : 'Total Earnings'}
                   </span>
                   {isLoadingEarnings && (
                     <span className="text-xs text-white/50">Loading earnings...</span>
                   )}
+                  {(sessionEarnings + dbUnclaimedRewards) > 0 && (node.isActive || isDeviceRunning(selectedNodeId)) && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                      <span className="text-xs text-yellow-400">Stop active node to claim rewards</span>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex items-baseline gap-2 z-10 flex-shrink-0">
-                <span className={`font-medium lg:text-4xl md:text-3xl sm:text-2xl ${(sessionEarnings + dbUnclaimedRewards) > 0 ? 'text-white/50' : 'text-blue-400'} leading-none`}>
-                  {isLoadingEarnings ? "..." : totalEarnings.toFixed(2)}
+                <span className={`font-medium lg:text-4xl md:text-3xl sm:text-2xl transition-all duration-300 ${
+                  (sessionEarnings + dbUnclaimedRewards) > 0 
+                    ? 'text-yellow-400' 
+                    : 'text-blue-400'
+                } leading-none`}>
+                  {isLoadingEarnings ? "..." : 
+                    (sessionEarnings + dbUnclaimedRewards) > 0 
+                      ? (sessionEarnings + dbUnclaimedRewards).toFixed(2)
+                      : totalEarnings.toFixed(2)
+                  }
                 </span>
-                <span className="text-white/90 text-sm">NLOV</span>
+                <span className={`text-sm transition-all duration-300 ${
+                  (sessionEarnings + dbUnclaimedRewards) > 0 
+                    ? 'text-yellow-300' 
+                    : 'text-white/90'
+                }`}>
+                  {(sessionEarnings + dbUnclaimedRewards) > 0 ? 'SP' : 'NLOV'}
+                </span>
               </div>
             </div>
             
             {(sessionEarnings + dbUnclaimedRewards) > 0 && (
               <div className="flex flex-col">
-                <div className="flex items-center justify-between mt-2 border-t border-blue-800/30 pt-3">
+                <div className="flex items-center justify-between mt-2 border-t border-yellow-500/30 pt-3">
                   <div className="flex items-center gap-2">
                     <img
                       src="/images/pending_reward.png"
@@ -849,7 +888,7 @@ export const NodeControlPanel = () => {
                     />
                     <div className="flex flex-col">
                       <span className="text-white text-base font-medium">
-                        Unclaimed: <span className="text-blue-400">+{(sessionEarnings + dbUnclaimedRewards).toFixed(2)} NLOV</span>
+                        Unclaimed: <span className="text-yellow-400">+{(sessionEarnings + dbUnclaimedRewards).toFixed(2)} NLOV</span>
                       </span>
                       <div className="text-xs text-white/50 space-y-0.5">
                         {isLoadingUnclaimedRewards ? (
@@ -884,8 +923,18 @@ export const NodeControlPanel = () => {
                     variant="default"
                     size="sm"
                     onClick={handleClaimReward}
-                    disabled={isClaimingReward || isSavingToDb || (sessionEarnings + dbUnclaimedRewards) <= 0 || isLoadingUnclaimedRewards}
-                    className="bg-green-600 hover:bg-green-700 hover:shadow-green-500/30 shadow-green-500 rounded-full text-white px-4 py-2 w-full"
+                    disabled={
+                      isClaimingReward || 
+                      isSavingToDb || 
+                      (sessionEarnings + dbUnclaimedRewards) <= 0 || 
+                      isLoadingUnclaimedRewards ||
+                      (node.isActive || isDeviceRunning(selectedNodeId))
+                    }
+                    className={`rounded-full text-white px-4 py-2 w-full transition-all duration-300 ${
+                      (node.isActive || isDeviceRunning(selectedNodeId))
+                        ? 'bg-gray-600 hover:bg-gray-700 cursor-not-allowed'
+                        : 'bg-green-600 hover:bg-green-700 hover:shadow-green-500/30 shadow-green-500'
+                    }`}
                   >
                     {isClaimingReward ? (
                       <div className="flex items-center justify-center">
@@ -899,11 +948,18 @@ export const NodeControlPanel = () => {
                           alt="Claim"
                           className="w-4 h-4 mr-2 object-contain"
                         />
-                        Claim Rewards
+                        {(node.isActive || isDeviceRunning(selectedNodeId)) ? 'Stop Node to Claim' : 'Claim Rewards'}
                       </div>
                     )}
                   </Button>
                 </div>
+              </div>
+            )}
+            
+            {/* Show message when no rewards available */}
+            {(sessionEarnings + dbUnclaimedRewards) <= 0 && (
+              <div className="flex items-center justify-center border-t border-blue-800/30 pt-3">
+                <span className="text-white/50 text-sm">Complete tasks to earn rewards</span>
               </div>
             )}
           </div>
