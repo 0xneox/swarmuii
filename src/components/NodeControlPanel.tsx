@@ -854,9 +854,9 @@ export const NodeControlPanel = () => {
                 }
                 setShowScanDialog(true);
               }}
-              disabled={deviceLimitExceeded}
+              disabled={deviceLimitExceeded || !isLoggedIn}
               className={`gradient-button rounded-full text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-2 ${
-                deviceLimitExceeded 
+                deviceLimitExceeded || !isLoggedIn
                   ? 'opacity-50 cursor-not-allowed text-gray-400' 
                   : 'text-[#8BBEFF]'
               }`}
@@ -982,7 +982,15 @@ export const NodeControlPanel = () => {
               )}
             </Button>
           </div>
-
+          
+          {/* Login Required Warning */}
+          {!isLoggedIn && (
+            <div className="mb-4 p-3 rounded-full bg-yellow-900/20 border border-yellow-500/30 flex items-center gap-2">
+              <AlertTriangle className="w-[15px] h-[15px] text-yellow-500 flex-shrink-0" />
+              <span className="text-xs text-yellow-200">Login required to start node</span>
+            </div>
+          )}
+          
           <div className="grid grid-cols-2 gap-2 sm:gap-4 mb-3 sm:mb-6">
             <div className="p-4 rounded-xl bg-[#1D1D33] flex flex-col">
               <div className="text-[#515194] text-xs mb-1">Reward Tier</div>
@@ -1133,11 +1141,11 @@ export const NodeControlPanel = () => {
                       : "text-blue-400"
                   } leading-none`}
                 >
-                  {isLoadingEarnings
+                  {isLoggedIn ? isLoadingEarnings
                     ? "..."
                     : sessionEarnings + dbUnclaimedRewards > 0
                     ? (sessionEarnings + dbUnclaimedRewards).toFixed(2)
-                    : totalEarnings.toFixed(2)}
+                    : totalEarnings.toFixed(2) : 0}
                 </span>
                 <span
                   className={`text-sm transition-all duration-300 ${

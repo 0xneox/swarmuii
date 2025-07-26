@@ -60,7 +60,7 @@ export const subscriptionTiers: SubscriptionTier[] = [
   {
     name: "Enterprise",
     price: 50,
-    maxUptime: 84, // 24 hours
+    maxUptime: 6 * 60 * 60, // 24 hours
     deviceLimit: 6,
     aiCredits: {
       neuroImageGen: "unlimited",

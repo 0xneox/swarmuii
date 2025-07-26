@@ -195,6 +195,41 @@
     background-clip: text;
   }
 
+  .network-stat-glow {
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(
+      circle at center,
+      rgba(64, 200, 255, 0.15) 0%,
+      rgba(3, 97, 218, 0.1) 30%,
+      transparent 70%
+    );
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .network-stat-shine {
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.1) 50%,
+      transparent 100%
+    );
+    transition: transform 0.8s ease;
+    pointer-events: none;
+    z-index: 3;
+  }
+
   .card-gradient {
     background: linear-gradient(
       135deg,
@@ -207,22 +242,54 @@
   .network-stat-card {
     position: relative;
     overflow: hidden;
-    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    background: linear-gradient(135deg, #0361DA 0%, #0240B3 50%, #02072D 100%);
+    border: 1px solid rgba(32, 165, 239, 0.2);
+    box-shadow: 
+      0 4px 20px rgba(3, 97, 218, 0.15),
+      0 1px 3px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .network-stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(
+      circle at 50% 0%,
+      rgba(100, 200, 255, 0.1) 0%,
+      transparent 50%
+    );
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+    z-index: 1;
   }
 
   .network-stat-card:hover {
-    transform: translateY(-3px) scale(1.02);
-    box-shadow: 0 8px 25px rgba(3, 97, 218, 0.3);
+    transform: translateY(-4px) scale(1.02);
+    border-color: rgba(32, 165, 239, 0.5);
+    box-shadow: 
+      0 12px 32px rgba(3, 97, 218, 0.25),
+      0 4px 16px rgba(3, 97, 218, 0.15),
+      0 2px 8px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  }
+
+  .network-stat-card:hover::before {
+    opacity: 1;
   }
 
   .network-stat-card:hover .network-stat-glow {
-    opacity: 1;
+    opacity: 0.8;
   }
 
   .network-stat-card:hover .network-stat-shine {
     transform: translateX(100%);
-    transition: transform 1.5s ease;
-    animation: var(--animate-shine);
+    transition: transform 1.2s ease;
   }
 
   .task-card {
