@@ -843,26 +843,39 @@ export const NodeControlPanel = () => {
               </h2>
               <InfoTooltip content="Manage your computing nodes, start or stop them, and view performance metrics" />
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (deviceLimitExceeded) {
-                  alert(`Device limit reached. Your ${currentPlan.toLowerCase()} plan allows ${planDetails.deviceLimit} device${planDetails.deviceLimit > 1 ? 's' : ''}. Current: ${nodes.length}`);
-                  return;
-                }
-                setShowScanDialog(true);
-              }}
-              disabled={deviceLimitExceeded}
-              className={`gradient-button rounded-full text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-2 ${
-                deviceLimitExceeded 
-                  ? 'opacity-50 cursor-not-allowed text-gray-400' 
-                  : 'text-[#8BBEFF]'
-              }`}
-            >
-              <Scan className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
-              Scan Device
-            </Button>
+  
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (deviceLimitExceeded) {
+                    alert(`Device limit reached. Your ${currentPlan.toLowerCase()} plan allows ${planDetails.deviceLimit} device${planDetails.deviceLimit > 1 ? 's' : ''}. Current: ${nodes.length}`);
+                    return;
+                  }
+                  setShowScanDialog(true);
+                }}
+                disabled={deviceLimitExceeded}
+                className={`gradient-button rounded-full text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-2 ${
+                  deviceLimitExceeded 
+                    ? 'opacity-50 cursor-not-allowed text-gray-400' 
+                    : 'text-[#8BBEFF]'
+                }`}
+              >
+                <Scan className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+                Scan Device
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  window.open('https://app.neurolov.ai/subscription', '_blank');
+                }}
+                className="gradient-button rounded-full text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-2 text-[#8BBEFF]"
+              >
+                Upgrade Plan
+              </Button>
+            </div>
           </div>
 
           <div className="flex flex-row gap-2 sm:gap-4 items-center mb-3 sm:mb-6">
