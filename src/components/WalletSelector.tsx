@@ -66,7 +66,7 @@ export const WalletSelector = ({ onClose }: WalletSelectorProps) => {
 
   return (
     <>
-      <div className="bg-[#040404] rounded-full p-1.5">
+      <div className="bg-[#040404] rounded-full">
         {hasWallet ? (
           <Button
             variant="outline"

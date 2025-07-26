@@ -47,13 +47,6 @@ export const TaskPipeline = () => {
     );
   }
 
-  if (!isLoggedIn || !user) {
-    return (
-      <div className="p-6 text-center text-gray-400">
-        <p>Please log in to access the Task Pipeline</p>
-      </div>
-    );
-  }
 
   const getTaskIcon = (type: string) => {
     switch (type) {

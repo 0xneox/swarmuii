@@ -21,30 +21,22 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Node Control Panel - Show disabled when not logged in */}
-        <div className={!isLoggedIn ? "relative" : ""}>
-          {!isLoggedIn && (
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm rounded-lg z-10 flex items-center justify-center">
-              <div className="text-center p-4">
-                <div className="text-white text-lg font-medium mb-2">Login Required</div>
-                <div className="text-gray-400 text-sm">Please login to start your node</div>
-              </div>
-            </div>
-          )}
+        <div>
           <Suspense fallback={<LoadingSpinner />}>
             <NodeControlPanel />
           </Suspense>
         </div>
 
         {/* Task Pipeline - Show disabled when not logged in */}
-        <div className={!isLoggedIn ? "relative" : ""}>
-          {!isLoggedIn && (
+        <div >
+          {/* {!isLoggedIn && (
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm rounded-lg z-10 flex items-center justify-center">
               <div className="text-center p-4">
                 <div className="text-white text-lg font-medium mb-2">Node Inactive</div>
                 <div className="text-gray-400 text-sm">Start your node to view tasks</div>
               </div>
             </div>
-          )}
+          )} */}
           <Suspense fallback={<LoadingSpinner />}>
             <TaskPipeline />
           </Suspense>
