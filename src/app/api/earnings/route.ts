@@ -7,9 +7,9 @@ export async function GET(request: NextRequest) {
   try {
     console.log('Starting /api/earnings GET request');
     const supabase = await createClient();
-    
+
     const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
+
     if (userError || !user) {
       console.error('User authentication error:', userError);
       return NextResponse.json(
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
         { headers: { 'Cache-Control': 'private, no-cache' } }
       );
     }
-    
+
     console.log('User authenticated:', user.id);
 
     // Check if we have the service role key
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
         .select('total_earnings')
         .eq('user_id', user.id)
         .single();
-        
+
       if (fallbackError) {
         console.log('Fallback query error:', fallbackError);
         return NextResponse.json(
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
           { headers: { 'Cache-Control': 'private, no-cache' } }
         );
       }
-      
+
       return NextResponse.json(
         { totalEarnings: fallbackData?.total_earnings || 0 },
         { headers: { 'Cache-Control': 'private, no-cache' } }
@@ -58,10 +58,10 @@ export async function GET(request: NextRequest) {
       .select('total_earnings')
       .eq('user_id', user.id)
       .single();
-    
+
     if (error) {
       console.error('Error loading earnings:', error);
-      
+
       // If no record exists yet, return 0
       if (error.code === 'PGRST116') {
         console.log('No earnings record found, returning 0');
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
           { headers: { 'Cache-Control': 'private, no-cache' } }
         );
       }
-      
+
       // For any other error, return 0 instead of error to avoid breaking the UI
       console.error('Returning 0 due to error:', error);
       return NextResponse.json(
@@ -78,10 +78,10 @@ export async function GET(request: NextRequest) {
         { headers: { 'Cache-Control': 'private, no-cache' } }
       );
     }
-    
+
     const totalEarnings = data?.total_earnings || 0;
     console.log('Successfully fetched earnings:', totalEarnings);
-    
+
     return NextResponse.json(
       { totalEarnings },
       {
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
         },
       }
     );
-    
+
   } catch (error) {
     console.error('Earnings GET API error:', error);
     return NextResponse.json(
@@ -104,9 +104,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
-    
+
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    
+
     if (sessionError || !session?.user) {
       return NextResponse.json(
         { error: 'Authentication required' },
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
       {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${session.access_token}`,
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -160,13 +160,13 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await response.json();
-    
+
     return NextResponse.json(result, {
       headers: {
         'Cache-Control': 'private, no-cache',
       },
     });
-    
+
   } catch (error) {
     console.error('Earnings POST API error:', error);
     return NextResponse.json(

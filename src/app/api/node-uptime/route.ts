@@ -5,9 +5,9 @@ import { createClient } from '@/utils/supabase/server';
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
-    
+
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    
+
     if (sessionError || !session?.user) {
       return NextResponse.json(
         { error: 'Authentication required' },
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${session.access_token}`,
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -74,13 +74,13 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await response.json();
-    
+
     return NextResponse.json(result, {
       headers: {
         'Cache-Control': 'private, no-cache',
       },
     });
-    
+
   } catch (error) {
     console.error('Node uptime API error:', error);
     return NextResponse.json(

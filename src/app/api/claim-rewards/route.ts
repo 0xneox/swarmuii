@@ -4,10 +4,10 @@ import { createClient } from '@/utils/supabase/server';
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
-    
+
     // Get the current user
     const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
+
     if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY || ''}`,
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || ''}`,
       },
       body: JSON.stringify({
         user_id: user.id
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     // If the edge function call fails, use our local API route as fallback
     if (!response.ok) {
       console.error(`Edge function failed with status ${response.status}`);
-      
+
       // Start a transaction to move unclaimed rewards to earnings
       const { data: profile, error: fetchError } = await supabase
         .from('user_profiles')
@@ -37,18 +37,18 @@ export async function POST(request: Request) {
 
       if (fetchError) {
         console.error('Error fetching current unclaimed rewards:', fetchError);
-        return NextResponse.json({ 
-          success: false, 
-          error: 'Failed to fetch current rewards' 
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to fetch current rewards'
         }, { status: 500 });
       }
 
       const unclaimedAmount = profile.unclaimed_reward || 0;
-      
+
       if (unclaimedAmount <= 0) {
-        return NextResponse.json({ 
-          success: false, 
-          message: 'No rewards to claim' 
+        return NextResponse.json({
+          success: false,
+          message: 'No rewards to claim'
         });
       }
 
@@ -60,9 +60,9 @@ export async function POST(request: Request) {
 
       if (updateError) {
         console.error('Error resetting unclaimed rewards:', updateError);
-        return NextResponse.json({ 
-          success: false, 
-          error: 'Failed to reset unclaimed rewards' 
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to reset unclaimed rewards'
         }, { status: 500 });
       }
 
@@ -87,9 +87,9 @@ export async function POST(request: Request) {
 
       if (leaderboardError) {
         console.error('Error updating earnings leaderboard:', leaderboardError);
-        return NextResponse.json({ 
-          success: false, 
-          error: 'Failed to update earnings leaderboard' 
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to update earnings leaderboard'
         }, { status: 500 });
       }
 
@@ -107,8 +107,8 @@ export async function POST(request: Request) {
         // Not returning an error here as the main operation succeeded
       }
 
-      return NextResponse.json({ 
-        success: true, 
+      return NextResponse.json({
+        success: true,
         message: 'Rewards claimed successfully',
         data: {
           claimed_amount: unclaimedAmount,
@@ -123,9 +123,9 @@ export async function POST(request: Request) {
 
   } catch (error) {
     console.error('Exception in POST /api/claim-rewards:', error);
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Internal server error' 
+    return NextResponse.json({
+      success: false,
+      error: 'Internal server error'
     }, { status: 500 });
   }
 }

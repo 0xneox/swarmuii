@@ -4,21 +4,21 @@ import { createClient } from '@/utils/supabase/server';
 export async function POST(request: Request) {
   try {
     const supabase = await createClient();
-    
+
     // Get the current user
     const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
+
     if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Get request body
-    const { 
-      increment_amount, 
-      task_id, 
-      task_type, 
-      hardware_tier, 
-      multiplier 
+    const {
+      increment_amount,
+      task_id,
+      task_type,
+      hardware_tier,
+      multiplier
     } = await request.json();
 
     if (typeof increment_amount !== 'number') {
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY || ''}`,
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || ''}`,
       },
       body: JSON.stringify({
         user_id: user.id,
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     // If the edge function call fails, use our local API route as fallback
     if (!response.ok) {
       console.error(`Edge function failed with status ${response.status}`);
-      
+
       // First fetch current unclaimed rewards, then increment
       const { data: profile, error: fetchError } = await supabase
         .from('user_profiles')
@@ -72,9 +72,9 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Failed to update unclaimed rewards' }, { status: 500 });
       }
 
-      return NextResponse.json({ 
+      return NextResponse.json({
         unclaimed_reward: updateData.unclaimed_reward,
-        success: true 
+        success: true
       });
     }
 
