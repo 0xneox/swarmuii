@@ -20,43 +20,13 @@ export async function GET(request: NextRequest) {
 
     console.log('User authenticated:', user.id);
 
-    // Check if we have the service role key
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
-      // Fall back to regular client if service role key is missing
-      const { data: fallbackData, error: fallbackError } = await supabase
-        .from('earnings_leaderboard')
-        .select('total_earnings')
-        .eq('user_id', user.id)
-        .single();
-
-      if (fallbackError) {
-        console.log('Fallback query error:', fallbackError);
-        return NextResponse.json(
-          { totalEarnings: 0 },
-          { headers: { 'Cache-Control': 'private, no-cache' } }
-        );
-      }
-
-      return NextResponse.json(
-        { totalEarnings: fallbackData?.total_earnings || 0 },
-        { headers: { 'Cache-Control': 'private, no-cache' } }
-      );
-    }
-
-    // Create an admin client with the service role key to access the view
-    console.log('Creating admin client with service role key');
-    const adminClient = createAdminClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-    );
-
-    // Fetch from earnings_leaderboard which has the correct total earnings
-    console.log('Fetching earnings for user:', user.id);
-    const { data, error } = await adminClient
-      .from('earnings_leaderboard')
-      .select('total_earnings')
+    // Get latest total earnings from earnings_history
+    const { data, error } = await supabase
+      .from('earnings_history')
+      .select('total_amount')
       .eq('user_id', user.id)
+      .order('timestamp', { ascending: false })
+      .limit(1)
       .single();
 
     if (error) {
@@ -71,15 +41,13 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      // For any other error, return 0 instead of error to avoid breaking the UI
-      console.error('Returning 0 due to error:', error);
       return NextResponse.json(
         { totalEarnings: 0 },
         { headers: { 'Cache-Control': 'private, no-cache' } }
       );
     }
 
-    const totalEarnings = data?.total_earnings || 0;
+    const totalEarnings = Number(data?.total_amount) || 0;
     console.log('Successfully fetched earnings:', totalEarnings);
 
     return NextResponse.json(
@@ -94,8 +62,8 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Earnings GET API error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      { totalEarnings: 0 },
+      { headers: { 'Cache-Control': 'private, no-cache' } }
     );
   }
 }
