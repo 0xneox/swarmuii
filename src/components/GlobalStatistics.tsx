@@ -95,6 +95,7 @@ interface LeaderboardEntry {
   username: string;
   total_earnings: number;
   rank: number;
+  task_count?: number;
 }
 
 export const GlobalStatistics = () => {
@@ -108,7 +109,7 @@ export const GlobalStatistics = () => {
     totalUsers: 0,
     totalEarnings: 0,
     globalComputeGenerated: 0,
-    totalTasks: 0
+    totalTasks: 0,
   });
 
   // Mock user profile for demonstration
@@ -116,17 +117,17 @@ export const GlobalStatistics = () => {
 
   // Fetch network statistics from real API
   const fetchNetworkStats = async () => {
-    const response = await fetch('/api/global-statistics', {
-      method: 'GET',
+    const response = await fetch("/api/global-statistics", {
+      method: "GET",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
     });
-    
+
     if (!response.ok) {
       throw new Error(`API call failed: ${response.status}`);
     }
-    
+
     const data = await response.json();
     return data.stats;
   };
@@ -136,23 +137,23 @@ export const GlobalStatistics = () => {
     try {
       setIsLeaderboardLoading(true);
 
-      const response = await fetch('/api/global-statistics', {
-        method: 'GET',
+      const response = await fetch("/api/global-statistics", {
+        method: "GET",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`API call failed: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       setLeaderboard(data.leaderboard || mockLeaderboard);
       setTotalEarnings(data.stats?.totalEarnings || mockStats.totalEarnings);
       setCurrentUserRank(data.currentUserRank || null);
-      
+
       // Also update stats if we got them
       if (data.stats) {
         setStats(data.stats);
@@ -185,29 +186,29 @@ export const GlobalStatistics = () => {
       setIsLeaderboardLoading(true);
 
       // Single API call to get all data
-      const response = await fetch('/api/global-statistics', {
-        method: 'GET',
+      const response = await fetch("/api/global-statistics", {
+        method: "GET",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`API call failed: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       // Update all state with fresh data
       if (data.stats) {
         setStats(data.stats);
         setTotalEarnings(data.stats.totalEarnings);
       }
-      
+
       if (data.leaderboard) {
         setLeaderboard(data.leaderboard);
       }
-      
+
       if (data.currentUserRank) {
         setCurrentUserRank(data.currentUserRank);
       }
