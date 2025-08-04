@@ -269,6 +269,33 @@ export const NodeControlPanel = () => {
     }
   };
 
+  const updateDeviceStatus = async (deviceId: string, status: 'online' | 'offline' | 'busy') => {
+    try {
+      const response = await fetch('/api/devices', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          device_id: deviceId,
+          status: status,
+          last_seen: new Date().toISOString()
+        }),
+      });
+
+      if (!response.ok) {
+        console.error('Failed to update device status:', response.status);
+        return false;
+      }
+
+      console.log(`Device ${deviceId} status updated to ${status}`);
+      return true;
+    } catch (error) {
+      console.error('Error updating device status:', error);
+      return false;
+    }
+  };
+
   // Ensure hydration safety
   useEffect(() => {
     setIsMounted(true);
@@ -477,9 +504,13 @@ export const NodeControlPanel = () => {
     fetchUserDevices();
   }, [user?.id, hasFetchedDevices]); // Keep minimal dependencies
 
-  const handleNodeSelect = (value: string) => {
-    setSelectedNodeId(value);
-    // Don't sync immediately here, let the useEffect handle it with a delay
+  const handleNodeSelect = (nodeId: string) => {
+    // Prevent switching nodes when any node is running
+    if (node.isActive || isDeviceRunning(selectedNodeId)) {
+      alert("Cannot switch nodes while a node is running. Please stop the current node first.");
+      return;
+    }
+    setSelectedNodeId(nodeId);
   };
 
   const deleteDevice = async (deviceId: string) => {
@@ -618,13 +649,16 @@ export const NodeControlPanel = () => {
       setIsStopping(true);
 
       try {
+        // Update device status to offline
+        await updateDeviceStatus(selectedNodeId, 'offline');
+
         // Save any unsaved session earnings before stopping the node
         if (sessionEarnings > 0) {
           console.log(
             "🛑 Node stopping: Saving session earnings to DB:",
             sessionEarnings
           );
-          const saveSuccess = await saveSessionEarningsToDb(true); // Force save
+          const saveSuccess = await saveSessionEarningsToDb(true);
           if (!saveSuccess) {
             console.error(
               "❌ Failed to save session earnings before stopping node"
@@ -646,7 +680,7 @@ export const NodeControlPanel = () => {
 
       setTimeout(() => {
         dispatch(stopNode());
-        dispatch(resetTasks()); // Clear all proxy tasks when node stops
+        dispatch(resetTasks());
         setIsStopping(false);
       }, 2000);
     } else {
@@ -660,15 +694,24 @@ export const NodeControlPanel = () => {
         setShowScanDialog(true);
         return;
       }
+
       setIsStarting(true);
 
-      // Start uptime tracking
-      startDeviceUptime(selectedNodeId);
+      try {
+        // Update device status to busy
+        await updateDeviceStatus(selectedNodeId, 'busy');
 
-      setTimeout(() => {
-        dispatch(startNode());
+        // Start uptime tracking
+        startDeviceUptime(selectedNodeId);
+
+        setTimeout(() => {
+          dispatch(startNode());
+          setIsStarting(false);
+        }, 2000);
+      } catch (error) {
+        console.error("Error starting node:", error);
         setIsStarting(false);
-      }, 2000);
+      }
     }
   };
 
@@ -870,8 +913,10 @@ export const NodeControlPanel = () => {
               onValueChange={handleNodeSelect}
               open={isOpen}
               onOpenChange={setIsOpen}
+              disabled={node.isActive || isDeviceRunning(selectedNodeId)}
             >
-              <SelectTrigger className="w-[75%] bg-[#1D1D33] border-0 rounded-full text-[#515194] text-xs sm:text-sm h-9 sm:h-10">
+              <SelectTrigger className={`w-[75%] bg-[#1D1D33] border-0 rounded-full text-[#515194] text-xs sm:text-sm h-9 sm:h-10 ${node.isActive || isDeviceRunning(selectedNodeId) ? 'opacity-50 cursor-not-allowed' : ''
+                }`}>
                 <div className="flex items-center gap-2">
                   {selectedNode && (
                     <>
