@@ -253,6 +253,63 @@ export const NodeControlPanel = () => {
     return exceeded;
   }, [nodes.length, canAddDevice, planDetails.deviceLimit]);
 
+  // FIX: CRITICAL - Enhanced uptime limit checking with server validation
+  const checkUptimeLimit = useCallback(async (validateWithServer: boolean = false): Promise<boolean> => {
+    if (!selectedNodeId) return false;
+
+    let currentUptime;
+
+    if (validateWithServer) {
+      // FIX: Get server-validated uptime
+      console.log("📡 Validating uptime with server...");
+      currentUptime = await validateCurrentUptime(selectedNodeId);
+    } else {
+      currentUptime = getCurrentUptime(selectedNodeId);
+    }
+
+    const maxUptime = getMaxUptime();
+    const exceeded = currentUptime >= maxUptime;
+
+    console.log(`📊 Uptime check - Current: ${currentUptime}s, Max: ${maxUptime}s, Exceeded: ${exceeded}`);
+
+    return exceeded;
+  }, [selectedNodeId, getCurrentUptime, getMaxUptime, validateCurrentUptime]);
+
+  // FIX: Enhanced fetch unclaimed rewards with better error handling
+  const fetchUnclaimedRewards = async () => {
+    if (!user?.id) return;
+
+    try {
+      setIsLoadingUnclaimedRewards(true);
+      console.log("💰 Fetching unclaimed rewards from server...");
+
+      const response = await fetch("/api/unclaimed-rewards", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.ok) {
+        const { unclaimed_reward } = await response.json();
+        const dbRewards = unclaimed_reward || 0;
+        setDbUnclaimedRewards(dbRewards);
+
+        // FIX: On page load, reset session earnings to start fresh
+        dispatch(resetSessionEarnings());
+        setLastSavedSessionEarnings(0);
+
+        console.log(`✅ Loaded unclaimed rewards from DB: ${dbRewards} SP`);
+      } else {
+        console.error("❌ Failed to fetch unclaimed rewards:", response.status);
+      }
+    } catch (error) {
+      console.error("❌ Error fetching unclaimed rewards:", error);
+    } finally {
+      setIsLoadingUnclaimedRewards(false);
+    }
+  };
+
   // FIX: Enhanced save session earnings with better concurrency control
   const saveSessionEarningsToDb = async (forceSkipConcurrencyCheck = false) => {
     if (!user?.id || sessionEarnings <= 0) return false;
@@ -308,28 +365,6 @@ export const NodeControlPanel = () => {
       setIsSavingToDb(false);
     }
   };
-
-  // FIX: CRITICAL - Enhanced uptime limit checking with server validation
-  const checkUptimeLimit = useCallback(async (validateWithServer: boolean = false): Promise<boolean> => {
-    if (!selectedNodeId) return false;
-
-    let currentUptime;
-
-    if (validateWithServer) {
-      // FIX: Get server-validated uptime
-      console.log("📡 Validating uptime with server...");
-      currentUptime = await validateCurrentUptime(selectedNodeId);
-    } else {
-      currentUptime = getCurrentUptime(selectedNodeId);
-    }
-
-    const maxUptime = getMaxUptime();
-    const exceeded = currentUptime >= maxUptime;
-
-    console.log(`📊 Uptime check - Current: ${currentUptime}s, Max: ${maxUptime}s, Exceeded: ${exceeded}`);
-
-    return exceeded;
-  }, [selectedNodeId, getCurrentUptime, getMaxUptime, validateCurrentUptime]);
 
   // FIX: NEW - Real-time uptime monitoring with immediate auto-stop
   const startUptimeMonitoring = useCallback(() => {
@@ -551,41 +586,6 @@ export const NodeControlPanel = () => {
       console.log("⏱️ Stopped backup periodic uptime validation");
     };
   }, [selectedNodeId, isDeviceRunning, getCurrentUptime, getMaxUptime, sessionEarnings, saveSessionEarningsToDb, updateDeviceStatus, stopDeviceUptime]);
-
-  // FIX: Enhanced fetch unclaimed rewards with better error handling
-  const fetchUnclaimedRewards = async () => {
-    if (!user?.id) return;
-
-    try {
-      setIsLoadingUnclaimedRewards(true);
-      console.log("💰 Fetching unclaimed rewards from server...");
-
-      const response = await fetch("/api/unclaimed-rewards", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (response.ok) {
-        const { unclaimed_reward } = await response.json();
-        const dbRewards = unclaimed_reward || 0;
-        setDbUnclaimedRewards(dbRewards);
-
-        // FIX: On page load, reset session earnings to start fresh
-        dispatch(resetSessionEarnings());
-        setLastSavedSessionEarnings(0);
-
-        console.log(`✅ Loaded unclaimed rewards from DB: ${dbRewards} NLOV`);
-      } else {
-        console.error("❌ Failed to fetch unclaimed rewards:", response.status);
-      }
-    } catch (error) {
-      console.error("❌ Error fetching unclaimed rewards:", error);
-    } finally {
-      setIsLoadingUnclaimedRewards(false);
-    }
-  };
 
   // FIX: Enhanced unclaimed rewards management
   const resetAllUnclaimedRewards = async () => {
@@ -1296,7 +1296,7 @@ export const NodeControlPanel = () => {
       // Recalculate total after potential save
       const finalDbRewards = dbUnclaimedRewards + (sessionEarnings > 0 ? sessionEarnings : 0);
 
-      console.log(`💰 Claiming final amount: ${finalDbRewards} NLOV`);
+      console.log(`💰 Claiming final amount: ${finalDbRewards} SP`);
 
       // Claim the rewards
       const result = await claimTaskRewards(finalDbRewards);
@@ -1748,7 +1748,7 @@ export const NodeControlPanel = () => {
                       <span className="text-white text-base font-medium break-words">
                         Unclaimed:{" "}
                         <span className="text-yellow-400">
-                          +{(sessionEarnings + dbUnclaimedRewards).toFixed(2)} NLOV
+                          +{(sessionEarnings + dbUnclaimedRewards).toFixed(2)} SP
                         </span>
                       </span>
                       {/* FIX: Enhanced earnings breakdown display */}
@@ -1759,12 +1759,12 @@ export const NodeControlPanel = () => {
                           <>
                             {dbUnclaimedRewards > 0 && (
                               <div>
-                                Saved: {dbUnclaimedRewards.toFixed(2)} NLOV
+                                Saved: {dbUnclaimedRewards.toFixed(2)} SP
                               </div>
                             )}
                             {sessionEarnings > 0 && (
                               <div className="flex items-center gap-1">
-                                <span>Session: {sessionEarnings.toFixed(2)} NLOV</span>
+                                <span>Session: {sessionEarnings.toFixed(2)} SP</span>
                                 {isSavingToDb ? (
                                   <span className="text-blue-400">(saving...)</span>
                                 ) : node.isActive || isDeviceRunning(selectedNodeId) ? (

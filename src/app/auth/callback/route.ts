@@ -33,45 +33,40 @@ export async function GET(request: NextRequest) {
 
       // Check if user has a profile, create one if not
       if (data?.session?.user) {
-        const { data: profileData, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('id')
-          .eq('id', data.session.user.id)
-          .single();
+        // Use upsert to prevent duplicate profile creation
+        const email = data.session.user.email || '';
+        const username = data.session.user.user_metadata?.username || email.split('@')[0];
         
-        if (profileError || !profileData) {
-          console.log("⚠️ No profile found for user, creating one");
-          // Create a new profile for the user
-          const email = data.session.user.email || '';
-          const username = data.session.user.user_metadata?.username || email.split('@')[0];
+        try {
+          // Try to insert, but if profile exists, it will be ignored due to unique constraint
+          const { error: upsertError } = await supabase
+            .from('user_profiles')
+            .upsert({
+              id: data.session.user.id,
+              email: email,
+              user_name: username,
+              joined_at: new Date().toISOString(),
+              referral_code: generateReferralCode(),
+              freedom_ai_credits: 10000,
+              music_video_credits: 0,
+              deepfake_credits: 0,
+              video_generator_credits: 0,
+              plan: 'free',
+              reputation_score: 0
+            }, {
+              onConflict: 'id', // Use upsert to handle existing profiles gracefully
+              ignoreDuplicates: true
+            });
           
-          try {
-            const { error: createError } = await supabase
-              .from('user_profiles')
-              .insert({
-                id: data.session.user.id,
-                email: email,
-                user_name: username,
-                joined_at: new Date().toISOString(),
-                referral_code: generateReferralCode(),
-                freedom_ai_credits: 10000,
-                music_video_credits: 0,
-                deepfake_credits: 0,
-                video_generator_credits: 0,
-                plan: 'free',
-                reputation_score: 0
-              });
-            
-            if (createError) {
-              console.error("❌ Error creating user profile in callback:", createError);
-            } else {
-              console.log("✅ User profile created in auth callback");
-            }
-          } catch (err) {
-            console.error("❌ Exception creating profile in callback:", err);
+          if (upsertError) {
+            console.error("❌ Error upserting user profile in callback:", upsertError);
+            // Don't fail the auth flow if profile creation fails
+          } else {
+            console.log("✅ User profile ensured in auth callback");
           }
-        } else {
-          console.log("✅ User profile already exists");
+        } catch (err) {
+          console.error("❌ Exception ensuring profile in callback:", err);
+          // Don't fail the auth flow if profile creation fails
         }
       }
     } catch (error) {

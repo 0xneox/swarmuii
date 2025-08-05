@@ -454,45 +454,6 @@ export default function HelpCenter() {
           </div>
         </div>
       </div>
-
-      <div id="resources-section" className="mt-10">
-        <h3 className="text-xl font-semibold mb-4 text-white">
-          {t("helpCenter.resources.title")}
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-[#161628] rounded-xl p-5 border border-[#112544]/50 shadow-lg">
-            <h4 className="font-medium text-white mb-2">
-              {t("helpCenter.resources.guides.title")}
-            </h4>
-            <p className="text-gray-400 text-sm mb-3">
-              {t("helpCenter.resources.guides.description")}
-            </p>
-            <Button
-              variant="outline"
-              className="text-blue-400 border-blue-400/30 hover:bg-blue-400/10 bg-transparent"
-            >
-              <Book className="w-4 h-4 mr-2" />
-              {t("helpCenter.resources.guides.button")}
-            </Button>
-          </div>
-
-          <div className="bg-[#161628] rounded-xl p-5 border border-[#112544]/50 shadow-lg">
-            <h4 className="font-medium text-white mb-2">
-              {t("helpCenter.resources.community.title")}
-            </h4>
-            <p className="text-gray-400 text-sm mb-3">
-              {t("helpCenter.resources.community.description")}
-            </p>
-            <Button
-              variant="outline"
-              className="text-green-400 border-green-400/30 hover:bg-green-400/10 bg-transparent"
-            >
-              <ExternalLink className="w-4 h-4 mr-2" />
-              {t("helpCenter.resources.community.button")}
-            </Button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
