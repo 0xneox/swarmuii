@@ -299,7 +299,7 @@ export const NodeControlPanel = () => {
         dispatch(resetSessionEarnings());
         setLastSavedSessionEarnings(0);
 
-        console.log(`✅ Loaded unclaimed rewards from DB: ${dbRewards} NLOV`);
+        console.log(`✅ Loaded unclaimed rewards from DB: ${dbRewards} SP`);
       } else {
         console.error("❌ Failed to fetch unclaimed rewards:", response.status);
       }
@@ -1042,7 +1042,7 @@ export const NodeControlPanel = () => {
       // Recalculate total after potential save
       const finalDbRewards = dbUnclaimedRewards + (sessionEarnings > 0 ? sessionEarnings : 0);
 
-      console.log(`💰 Claiming final amount: ${finalDbRewards} NLOV`);
+      console.log(`💰 Claiming final amount: ${finalDbRewards} SP`);
 
       // Claim the rewards
       const result = await claimTaskRewards(finalDbRewards);
@@ -1494,7 +1494,7 @@ export const NodeControlPanel = () => {
                       <span className="text-white text-base font-medium break-words">
                         Unclaimed:{" "}
                         <span className="text-yellow-400">
-                          +{(sessionEarnings + dbUnclaimedRewards).toFixed(2)} NLOV
+                          +{(sessionEarnings + dbUnclaimedRewards).toFixed(2)} SP
                         </span>
                       </span>
                       {/* FIX: Enhanced earnings breakdown display */}
@@ -1505,12 +1505,12 @@ export const NodeControlPanel = () => {
                           <>
                             {dbUnclaimedRewards > 0 && (
                               <div>
-                                Saved: {dbUnclaimedRewards.toFixed(2)} NLOV
+                                Saved: {dbUnclaimedRewards.toFixed(2)} SP
                               </div>
                             )}
                             {sessionEarnings > 0 && (
                               <div className="flex items-center gap-1">
-                                <span>Session: {sessionEarnings.toFixed(2)} NLOV</span>
+                                <span>Session: {sessionEarnings.toFixed(2)} SP</span>
                                 {isSavingToDb ? (
                                   <span className="text-blue-400">(saving...)</span>
                                 ) : node.isActive || isDeviceRunning(selectedNodeId) ? (
