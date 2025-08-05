@@ -1,8 +1,8 @@
 import { useAuth } from "@/contexts/AuthContext";
-import supabaseClient from "@/lib/supabase";
-import { toast } from "sonner";
+import { createClient } from "@/utils/supabase/client";
+import { validateSession, isSessionValid } from "@/lib/sessionUtils";
 
-export type WalletType = "phantom";
+export type WalletType = "phantom" | "metamask";
 
 export interface SessionData {
   userId: string | null;
@@ -10,22 +10,30 @@ export interface SessionData {
   walletAddress: string | null;
   walletType: WalletType | null;
   isAuthenticated: boolean;
+  sessionValid: boolean;
 }
 
 export const useSession = () => {
-  const { user, profile, updateProfile } = useAuth();
-  const supabase = supabaseClient;
+  const { user, profile, updateProfile, session } = useAuth();
+  const supabase = createClient();
 
-  // Map auth context to session format
-  const session: SessionData = {
+  // Map auth context to session format with validation
+  const sessionData: SessionData = {
     userId: user?.id || null,
     email: user?.email || null,
     walletAddress: profile?.wallet_address || null,
     walletType: profile?.wallet_type as WalletType || null,
     isAuthenticated: !!user,
+    sessionValid: isSessionValid(session),
   };
 
   const connectWallet = async (walletType: WalletType) => {
+    // Validate session before proceeding
+    const sessionValidation = await validateSession();
+    if (!sessionValidation.isValid) {
+      throw new Error("Invalid session. Please log in again.");
+    }
+
     if (!user) {
       throw new Error("User must be authenticated to connect wallet");
     }
@@ -71,6 +79,12 @@ export const useSession = () => {
   };
 
   const disconnectWallet = async () => {
+    // Validate session before proceeding
+    const sessionValidation = await validateSession();
+    if (!sessionValidation.isValid) {
+      throw new Error("Invalid session. Please log in again.");
+    }
+
     if (!user) {
       throw new Error("User must be authenticated to disconnect wallet");
     }
@@ -89,9 +103,14 @@ export const useSession = () => {
     }
   };
 
+  const validateCurrentSession = async () => {
+    return await validateSession();
+  };
+
   return {
-    session,
+    session: sessionData,
     connectWallet,
     disconnectWallet,
+    validateCurrentSession,
   };
 };

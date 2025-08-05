@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 
+// Define types for leaderboard entries
+interface LeaderboardEntry {
+  user_id: string;
+  username: string;
+  total_earnings: number;
+  rank: number;
+  task_count: number;
+}
+
+interface LeaderboardFunctionResult {
+  top10: LeaderboardEntry[];
+  user_rank: LeaderboardEntry | null;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -16,7 +30,7 @@ export async function GET(request: NextRequest) {
     const [
       { count: totalUsers, error: usersError },
       { data: totalEarningsData, error: earningsError },
-      { data: leaderboardData, error: leaderboardError }
+      { data: leaderboardFunctionData, error: leaderboardFunctionError }
     ] = await Promise.all([
       // Get total users count efficiently
       supabase
@@ -30,18 +44,11 @@ export async function GET(request: NextRequest) {
         .order('total_amount', { ascending: false })
         .limit(50), // Limit to top 50 for calculation
 
-      // Get top 10 leaderboard with user names - OPTIMIZED
+      // Use the get_top10_with_user_rank function to get consistent leaderboard data
       supabase
-        .from('earnings_history')
-        .select(`
-          user_id,
-          total_amount,
-          user_profiles!inner(
-            user_name
-          )
-        `)
-        .order('total_amount', { ascending: false })
-        .limit(10)
+        .rpc('get_top10_with_user_rank', {
+          target_user_id: session?.user?.id || null
+        })
     ]);
 
     // Handle errors
@@ -55,8 +62,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch earnings data' }, { status: 500 });
     }
 
-    if (leaderboardError) {
-      console.error('Error fetching leaderboard:', leaderboardError);
+    if (leaderboardFunctionError) {
+      console.error('Error fetching leaderboard from function:', leaderboardFunctionError);
       return NextResponse.json({ error: 'Failed to fetch leaderboard' }, { status: 500 });
     }
 
@@ -81,62 +88,114 @@ export async function GET(request: NextRequest) {
     const globalComputeGenerated = Math.round(totalEarnings * 0.1); // Estimate based on earnings
     const totalTasksCount = Math.round((userCount || 0) * 15.5); // Ensure userCount is not null
 
-    // Format leaderboard data from earnings_history with user_profiles join
-    console.log('Debug - leaderboardData sample:', leaderboardData?.[0]);
-    const leaderboard = (leaderboardData || []).map((entry: any, index: number) => {
-      console.log('Debug - leaderboard entry:', entry);
-      return {
-        user_id: entry.user_id,
-        username: entry.user_profiles?.[0]?.user_name || entry.user_profiles?.user_name || `User${entry.user_id.slice(0, 6)}`,
-        total_earnings: Number(entry.total_amount) || 0,
-        rank: index + 1
-      };
-    });
+    // Parse the leaderboard data from the function
+    console.log('Debug - leaderboardFunctionData:', leaderboardFunctionData);
+    
+    let leaderboard: LeaderboardEntry[] = [];
+    let currentUserRank: LeaderboardEntry | null = null;
 
-    // Get current user rank if session exists
-    let currentUserRank = null;
-    if (session?.user) {
-      // First check if user is in top 10
-      const userInLeaderboard = leaderboard.find((entry: any) => entry.user_id === session.user.id);
+    if (leaderboardFunctionData) {
+      // Extract top10 and user_rank from the function result
+      const { top10, user_rank } = leaderboardFunctionData as LeaderboardFunctionResult;
+      
+      // Format the top10 leaderboard
+      if (top10 && Array.isArray(top10)) {
+        leaderboard = top10.map((entry: any) => ({
+          user_id: entry.user_id,
+          username: entry.username,
+          total_earnings: Number(entry.total_earnings) || 0,
+          rank: entry.rank,
+          task_count: entry.task_count || 0
+        }));
+      }
 
-      if (userInLeaderboard) {
-        currentUserRank = userInLeaderboard;
-      } else {
-        // If not in top 10, get their specific rank and earnings
-        try {
-          // Get current user's total earnings
-          const { data: userEarningsData, error: userEarningsError } = await supabase
-            .from('earnings_history')
-            .select(`
-              total_amount,
-              user_profiles!inner(
-                user_name
-              )
-            `)
-            .eq('user_id', session.user.id)
-            .single();
+      // Set current user rank if available
+      if (user_rank) {
+        currentUserRank = {
+          user_id: user_rank.user_id,
+          username: user_rank.username,
+          total_earnings: Number(user_rank.total_earnings) || 0,
+          rank: user_rank.rank,
+          task_count: user_rank.task_count || 0
+        };
+      }
+    }
 
-          if (!userEarningsError && userEarningsData) {
-            // Count how many users have higher earnings to determine rank
-            const { count: higherEarningsCount, error: rankError } = await supabase
-              .from('earnings_history')
-              .select('*', { count: 'exact', head: true })
-              .gt('total_amount', userEarningsData.total_amount);
+    // Fallback: If function fails, use the old method
+    if (!leaderboardFunctionData || leaderboard.length === 0) {
+      console.log('Fallback: Using manual leaderboard query');
+      
+      // Get top 10 leaderboard with user names - FALLBACK
+      const { data: fallbackLeaderboardData, error: fallbackError } = await supabase
+        .from('earnings_history')
+        .select(`
+          user_id,
+          total_amount,
+          user_profiles!inner(
+            user_name
+          )
+        `)
+        .order('total_amount', { ascending: false })
+        .limit(10);
 
-            if (!rankError) {
-              const userRank = (higherEarningsCount || 0) + 1;
+      if (!fallbackError && fallbackLeaderboardData) {
+        leaderboard = fallbackLeaderboardData.map((entry: any, index: number) => {
+          const userProfile = Array.isArray(entry.user_profiles) ? entry.user_profiles[0] : entry.user_profiles;
+          return {
+            user_id: entry.user_id,
+            username: userProfile?.user_name || `User${entry.user_id.slice(0, 6)}`,
+            total_earnings: Number(entry.total_amount) || 0,
+            rank: index + 1,
+            task_count: 0
+          };
+        });
 
-              currentUserRank = {
-                user_id: session.user.id,
-                username: userEarningsData.user_profiles?.user_name || `User${session.user.id.slice(0, 6)}`,
-                total_earnings: Number(userEarningsData.total_amount) || 0,
-                rank: userRank
-              };
+        // Get current user rank if session exists and not in top 10
+        if (session?.user) {
+          const userInLeaderboard = leaderboard.find((entry: LeaderboardEntry) => entry.user_id === session.user.id);
+
+          if (userInLeaderboard) {
+            currentUserRank = userInLeaderboard;
+          } else {
+            // If not in top 10, get their specific rank and earnings
+            try {
+              // Get current user's total earnings
+              const { data: userEarningsData, error: userEarningsError } = await supabase
+                .from('earnings_history')
+                .select(`
+                  total_amount,
+                  user_profiles!inner(
+                    user_name
+                  )
+                `)
+                .eq('user_id', session.user.id)
+                .single();
+
+              if (!userEarningsError && userEarningsData) {
+                // Count how many users have higher earnings to determine rank
+                const { count: higherEarningsCount, error: rankError } = await supabase
+                  .from('earnings_history')
+                  .select('*', { count: 'exact', head: true })
+                  .gt('total_amount', userEarningsData.total_amount);
+
+                if (!rankError) {
+                  const userRank = (higherEarningsCount || 0) + 1;
+
+                  const userProfile = Array.isArray(userEarningsData.user_profiles) ? userEarningsData.user_profiles[0] : userEarningsData.user_profiles;
+                  currentUserRank = {
+                    user_id: session.user.id,
+                    username: userProfile?.user_name || `User${session.user.id.slice(0, 6)}`,
+                    total_earnings: Number(userEarningsData.total_amount) || 0,
+                    rank: userRank,
+                    task_count: 0
+                  };
+                }
+              }
+            } catch (error) {
+              console.error('Error fetching current user rank:', error);
+              // Don't fail the entire request if user rank fails
             }
           }
-        } catch (error) {
-          console.error('Error fetching current user rank:', error);
-          // Don't fail the entire request if user rank fails
         }
       }
     }
@@ -152,6 +211,13 @@ export async function GET(request: NextRequest) {
       leaderboard,
       currentUserRank
     };
+
+    console.log('Debug - Final response data:', {
+      leaderboardLength: leaderboard.length,
+      currentUserRank: currentUserRank ? 'Found' : 'Not found',
+      totalUsers: userCount,
+      totalEarnings
+    });
 
     // Return the data with aggressive caching for memory optimization
     return NextResponse.json(responseData, {
