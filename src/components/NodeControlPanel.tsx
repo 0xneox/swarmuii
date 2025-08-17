@@ -151,6 +151,7 @@ export const NodeControlPanel = () => {
     useState(true);
   const [lastSavedSessionEarnings, setLastSavedSessionEarnings] = useState(0);
   const [isSavingToDb, setIsSavingToDb] = useState(false);
+  const [isClaimInProgress, setIsClaimInProgress] = useState(false);
 
   // FIX: Enhanced refs for better tracking
   const initializedDevicesRef = useRef<Set<string>>(new Set());
@@ -684,7 +685,7 @@ export const NodeControlPanel = () => {
     stopDeviceUptime,
   ]);
 
-  // FIX: Enhanced unclaimed rewards management
+  // FIX: Enhanced unclaimed rewards management with comprehensive state clearing
   const resetAllUnclaimedRewards = async () => {
     if (!user?.id) return false;
 
@@ -699,9 +700,19 @@ export const NodeControlPanel = () => {
 
       if (response.ok) {
         console.log("✅ Reset all unclaimed rewards to 0");
+        
+        // FIX: CRITICAL - Clear ALL state immediately to prevent any double claiming
         setDbUnclaimedRewards(0);
         setLastSavedSessionEarnings(0);
         dispatch(resetSessionEarnings());
+        
+        // FIX: Force clear any pending state updates
+        setTimeout(() => {
+          setDbUnclaimedRewards(0);
+          setLastSavedSessionEarnings(0);
+          dispatch(resetSessionEarnings());
+        }, 100);
+        
         return true;
       } else {
         console.error("❌ Failed to reset unclaimed rewards:", response.status);
@@ -749,6 +760,19 @@ export const NodeControlPanel = () => {
       fetchUnclaimedRewards();
     }
   }, [user?.id, isMounted]);
+
+  // FIX: CRITICAL - Monitor total rewards and auto-clear state when zero
+  useEffect(() => {
+    const totalRewards = sessionEarnings + dbUnclaimedRewards;
+    
+    // FIX: Auto-clear state when rewards reach zero to prevent any double claiming
+    if (totalRewards <= 0.01 && (sessionEarnings > 0 || dbUnclaimedRewards > 0)) {
+      console.log("🔄 Auto-clearing reward state - total rewards reached zero");
+      setDbUnclaimedRewards(0);
+      setLastSavedSessionEarnings(0);
+      dispatch(resetSessionEarnings());
+    }
+  }, [sessionEarnings, dbUnclaimedRewards]);
 
   // FIX: Enhanced auto-save with better concurrency control
   useEffect(() => {
@@ -1505,10 +1529,24 @@ export const NodeControlPanel = () => {
     }
   };
 
-  // FIX: Enhanced claim reward handler with better error recovery
+  // FIX: Enhanced claim reward handler with better error recovery and state management
   const handleClaimReward = async () => {
     const totalUnclaimedRewards = sessionEarnings + dbUnclaimedRewards;
-    if (totalUnclaimedRewards <= 0) return;
+    
+    // FIX: CRITICAL - Multiple safety checks to prevent double claiming
+    if (totalUnclaimedRewards <= 0.01 || isNaN(totalUnclaimedRewards)) {
+      console.log("🚫 Claim blocked - no valid rewards to claim");
+      return;
+    }
+    
+    // FIX: Additional safety check - if already claiming, block
+    if (isClaimingReward) {
+      console.log("🚫 Claim blocked - already in progress");
+      return;
+    }
+
+    // FIX: Set claim in progress state
+    setIsClaimInProgress(true);
 
     try {
       console.log("💰 Starting reward claim process...");
@@ -1560,6 +1598,16 @@ export const NodeControlPanel = () => {
         const resetSuccess = await resetAllUnclaimedRewards();
         if (resetSuccess) {
           console.log("✅ Successfully claimed and reset all rewards");
+          
+          // FIX: CRITICAL - Immediately clear all local state to prevent double claiming
+          setDbUnclaimedRewards(0);
+          setLastSavedSessionEarnings(0);
+          dispatch(resetSessionEarnings());
+          
+          // FIX: Force refresh unclaimed rewards to ensure consistency
+          setTimeout(() => {
+            fetchUnclaimedRewards();
+          }, 1000);
         }
 
         // Process referral rewards
@@ -1580,6 +1628,9 @@ export const NodeControlPanel = () => {
     } catch (error) {
       console.error("❌ Error in reward claiming process:", error);
       alert("❌ Failed to claim rewards. Please try again.");
+    } finally {
+      // FIX: Always clear claim in progress state
+      setIsClaimInProgress(false);
     }
   };
 
@@ -2031,7 +2082,8 @@ export const NodeControlPanel = () => {
               </div>
             </div>
 
-            {sessionEarnings + dbUnclaimedRewards > 0 && (
+            {/* FIX: CRITICAL - Enhanced conditional rendering with strict reward validation */}
+            {(sessionEarnings + dbUnclaimedRewards) > 0.01 && (
               <div className="flex flex-col">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between mt-2 border-t border-yellow-500/30 pt-3 gap-3">
                   <div className="flex items-center gap-2">
@@ -2054,12 +2106,12 @@ export const NodeControlPanel = () => {
                           <div>Loading...</div>
                         ) : (
                           <>
-                            {dbUnclaimedRewards > 0 && (
+                            {dbUnclaimedRewards > 0.01 && (
                               <div>
                                 Saved: {dbUnclaimedRewards.toFixed(2)} SP
                               </div>
                             )}
-                            {sessionEarnings > 0 && (
+                            {sessionEarnings > 0.01 && (
                               <div className="flex items-center gap-1">
                                 <span>
                                   Session: {sessionEarnings.toFixed(2)} SP
@@ -2105,11 +2157,16 @@ export const NodeControlPanel = () => {
                     onClick={handleClaimReward}
                     disabled={
                       isClaimingReward ||
+                      isClaimInProgress ||
                       isSavingToDb ||
-                      sessionEarnings + dbUnclaimedRewards <= 0 ||
+                      // FIX: CRITICAL - Enhanced disabled logic to prevent double claiming
+                      (sessionEarnings + dbUnclaimedRewards) <= 0.01 ||
                       isLoadingUnclaimedRewards ||
                       node.isActive ||
-                      isDeviceRunning(selectedNodeId)
+                      isDeviceRunning(selectedNodeId) ||
+                      // FIX: Additional safety checks
+                      isNaN(sessionEarnings + dbUnclaimedRewards) ||
+                      (sessionEarnings + dbUnclaimedRewards) < 0.01
                     }
                     className={`rounded-full text-white px-4 py-2 w-full sm:w-auto transition-all duration-300 ${
                       node.isActive || isDeviceRunning(selectedNodeId)
