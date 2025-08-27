@@ -89,6 +89,9 @@ interface SupabaseDevice {
   reward_tier: "webgpu" | "wasm" | "webgl" | "cpu" | null;
   device_name: string | null;
   device_type: "desktop" | "laptop" | "mobile" | "tablet";
+  session_token: string | null;
+  session_created_at: string | null;
+  last_seen: string | null;
 }
 
 export const NodeControlPanel = () => {
@@ -163,6 +166,15 @@ export const NodeControlPanel = () => {
   // FIX: Add new state for sync status tracking
   const [syncingDeviceId, setSyncingDeviceId] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<number>(0);
+  
+  // FIX: Add session management state
+  const [deviceSessionToken, setDeviceSessionToken] = useState<string | null>(null);
+  const [sessionVerified, setSessionVerified] = useState<boolean>(false);
+  const [sessionExists, setSessionExists] = useState<boolean>(false);
+  const [sessionCheckComplete, setSessionCheckComplete] = useState<boolean>(false);
+
+  // Add broadcast channel for cross-tab communication
+  const [broadcastChannel, setBroadcastChannel] = useState<BroadcastChannel | null>(null);
 
   // Helper function to get device icon
   const getDeviceIcon = (type: "desktop" | "laptop" | "tablet" | "mobile") => {
@@ -178,34 +190,165 @@ export const NodeControlPanel = () => {
     }
   };
 
-  // FIX: Enhanced device status update function
+  // Generate unique identifiers for session management
+  const generateSessionToken = () => {
+    // Combine current timestamp, random string, and user ID if available for uniqueness
+    const timestamp = Date.now();
+    const randomString = Math.random().toString(36).substring(2, 15);
+    const userComponent = user?.id ? user.id.substring(0, 8) : '';
+    return `${timestamp}-${randomString}-${userComponent}`;
+  };
+  
+  // Generate a unique tab identifier
+  const generateTabId = () => {
+    return `tab_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+  };
+  
+  // Get or create tab ID for this session
+  const getTabId = () => {
+    let tabId = sessionStorage.getItem('tab_id');
+    if (!tabId) {
+      tabId = generateTabId();
+      sessionStorage.setItem('tab_id', tabId);
+    }
+    return tabId;
+  };
+  
+  // Check if device has an active session elsewhere
+  const checkDeviceSession = async (deviceId: string): Promise<{
+    hasActiveSession: boolean;
+    sessionToken: string | null;
+    sessionCreatedAt: string | null;
+    deviceStatus: string;
+  }> => {
+    try {
+      if (!deviceId) {
+        return { 
+          hasActiveSession: false, 
+          sessionToken: null,
+          sessionCreatedAt: null,
+          deviceStatus: "offline" 
+        };
+      }
+      
+      console.log(`🔍 Checking session status for device: ${deviceId}`);
+      
+      const response = await fetch(`/api/device-session/verify?deviceId=${deviceId}`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" }
+      });
+      
+      if (!response.ok) {
+        console.error("Failed to verify device session:", response.status);
+        return { 
+          hasActiveSession: false, 
+          sessionToken: null,
+          sessionCreatedAt: null,
+          deviceStatus: "offline" 
+        };
+      }
+      
+      const data = await response.json();
+      
+      console.log(`✅ Device ${deviceId} session check:`, {
+        hasActiveSession: data.hasActiveSession,
+        status: data.status
+      });
+      
+      return {
+        hasActiveSession: data.hasActiveSession,
+        sessionToken: data.sessionToken,
+        sessionCreatedAt: data.sessionCreatedAt,
+        deviceStatus: data.status
+      };
+    } catch (error) {
+      console.error("Error checking device session:", error);
+      return { 
+        hasActiveSession: false, 
+        sessionToken: null,
+        sessionCreatedAt: null,
+        deviceStatus: "offline" 
+      };
+    }
+  };
+  
+  // Verify if the current tab owns the active session
+  const verifySessionOwnership = async (deviceId: string, sessionToken: string): Promise<boolean> => {
+    try {
+      if (!deviceId || !sessionToken) return false;
+      
+      console.log(`🔐 Verifying session ownership for device: ${deviceId}`);
+      
+      const response = await fetch(`/api/device-session/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId, sessionToken })
+      });
+      
+      if (!response.ok) {
+        console.error("Failed to verify session ownership:", response.status);
+        return false;
+      }
+      
+      const data = await response.json();
+      console.log(`✅ Session ownership verification result:`, data.isSessionValid);
+      
+      return data.isSessionValid;
+    } catch (error) {
+      console.error("Error verifying session ownership:", error);
+      return false;
+    }
+  };
+
+  // FIX: Enhanced device status update function with session token management
   const updateDeviceStatus = async (
     deviceId: string,
-    status: "online" | "offline" | "busy"
+    status: "offline" | "busy",
+    includeSessionToken = false
   ) => {
     try {
+      const payload: any = {
+        device_id: deviceId,
+        status: status,
+        last_seen: new Date().toISOString(),
+      };
+
+      // For busy status, generate and include a session token
+      if (includeSessionToken && status === "busy") {
+        const sessionToken = generateSessionToken();
+        payload.session_token = sessionToken;
+        payload.session_created_at = new Date().toISOString();
+        
+        console.log(`🔑 Generated new session token for device ${deviceId}`);
+      }
+      
+      // For offline status, clear the session token
+      if (status === "offline") {
+        payload.session_token = null;
+        payload.session_created_at = null;
+      }
+
       const response = await fetch("/api/devices", {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          device_id: deviceId,
-          status: status,
-          last_seen: new Date().toISOString(),
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
         console.error("Failed to update device status:", response.status);
-        return false;
+        return { success: false, sessionToken: null };
       }
 
       console.log(`✅ Device ${deviceId} status updated to ${status}`);
-      return true;
+      return { 
+        success: true, 
+        sessionToken: payload.session_token || null 
+      };
     } catch (error) {
       console.error("Error updating device status:", error);
-      return false;
+      return { success: false, sessionToken: null };
     }
   };
 
@@ -724,7 +867,7 @@ export const NodeControlPanel = () => {
     }
   };
 
-  // FIX: Enhanced mount effect with migration
+  // FIX: Enhanced mount effect with migration and session verification
   useEffect(() => {
     setIsMounted(true);
 
@@ -749,8 +892,226 @@ export const NodeControlPanel = () => {
       });
     };
 
+    // Initialize session management - store any session token in localStorage
+    const sessionToken = localStorage.getItem("device_session_token");
+    const sessionDeviceId = localStorage.getItem("device_session_deviceId");
+    
+    if (sessionToken && sessionDeviceId) {
+      console.log(`🔑 Found stored session token for device: ${sessionDeviceId}`);
+      setDeviceSessionToken(sessionToken);
+    }
+
     migrateOldData();
-  }, []);
+
+    // Initialize broadcast channel for cross-tab communication
+    try {
+      if (typeof window !== 'undefined' && window.BroadcastChannel) {
+        const channel = new BroadcastChannel('neuroswarm_device_session');
+        
+                 // Set up event listener for messages from other tabs
+         channel.onmessage = async (event) => {
+           const { action, deviceId, sessionToken, owner, recovered, final, ownerTabId } = event.data;
+           
+           console.log(`📡 Broadcast received: ${action} for device ${deviceId || 'unknown'}`);
+           
+           // Handle different message types
+           if (action === 'device_active' && deviceId) {
+             // Another tab is running this device
+             if (deviceId === selectedNodeId) {
+               console.log(`⚠️ Device ${deviceId} is now active in another tab`);
+               setSessionExists(true);
+               
+               // Check if this is our own session announcement
+               const currentTabId = getTabId();
+               const isOurSession = ownerTabId && ownerTabId === currentTabId;
+               
+               if (isOurSession) {
+                 // This is our own session announcement - ignore
+                 console.log(`ℹ️ Ignoring our own session announcement for device ${deviceId}`);
+                 return;
+               }
+               
+               // If the other tab claims ownership of the session
+               if (owner) {
+                 setSessionVerified(false);
+                 
+                 // CRITICAL FIX: Always make sure to stop task processing if another tab owns the session
+                 if (node.isActive) {
+                   console.log(`🛑 IMMEDIATE STOP: Device ${deviceId} in this tab due to activity elsewhere`);
+                   dispatch(stopNode());
+                   dispatch(resetTasks());
+                   
+                   // Only show an alert if this wasn't due to a session recovery
+                   if (!recovered) {
+                     setTimeout(() => {
+                       alert("Your node session was started in another tab or browser.");
+                     }, 500);
+                   }
+                 }
+               }
+             }
+                      } else if (action === 'device_inactive' && deviceId) {
+             // Device was stopped in another tab
+             if (deviceId === selectedNodeId) {
+               console.log(`🟢 Device ${deviceId} is now inactive in all tabs`);
+               setSessionExists(false);
+               setSessionVerified(false);
+               
+               // CRITICAL FIX: Stop uptime tracking and Redux state in ALL tabs
+               if (node.isActive || isDeviceRunning(deviceId)) {
+                 console.log(`🛑 Stopping node and uptime in this tab due to device_inactive broadcast`);
+                 
+                 // Stop Redux state and tasks
+                 dispatch(stopNode());
+                 dispatch(resetTasks());
+                 
+                 // Stop uptime tracking
+                 try {
+                   await stopDeviceUptime(deviceId);
+                 } catch (error) {
+                   console.error("❌ Error stopping uptime in broadcast handler:", error);
+                 }
+               }
+               
+               // If it's a final message (tab closing), refresh state from server to be sure
+               if (final) {
+                 setTimeout(async () => {
+                   const sessionCheck = await checkDeviceSession(deviceId);
+                   setSessionExists(sessionCheck.hasActiveSession);
+                   
+                   // Also sync uptime to ensure consistency
+                   if (!sessionCheck.hasActiveSession) {
+                     try {
+                       await syncDeviceUptime(deviceId, true);
+                     } catch (error) {
+                       console.error("❌ Error syncing uptime after session check:", error);
+                     }
+                   }
+                 }, 1000);
+               }
+             }
+           } else if (action === 'verify_sessions') {
+             // Respond with active session info if we have one AND we are the verified owner
+             const currentTabId = getTabId();
+             const sessionOwnerTabId = localStorage.getItem("session_owner_tab_id");
+             
+             if (sessionVerified && deviceSessionToken && selectedNodeId && sessionOwnerTabId === currentTabId) {
+               console.log(`🔐 Responding to session verification request - we own ${selectedNodeId}`);
+               channel.postMessage({
+                 action: 'session_info',
+                 deviceId: selectedNodeId,
+                 sessionToken: deviceSessionToken,
+                 owner: true,
+                 ownerTabId: currentTabId
+               });
+             }
+                      } else if (action === 'session_info' && deviceId && owner) {
+             // Another tab has reported that it owns the session for this device
+             if (deviceId === selectedNodeId) {
+               console.log(`ℹ️ Received session info from another tab for device ${deviceId}`);
+               
+               // Update our state to reflect that we don't own this session
+               setSessionExists(true);
+               setSessionVerified(false);
+               
+               // CRITICAL FIX: Always stop task processing and uptime tracking immediately
+               if (node.isActive || isDeviceRunning(deviceId)) {
+                 console.log(`🛑 IMMEDIATE STOP: Device ${deviceId} in this tab as another tab owns it`);
+                 dispatch(stopNode());
+                 dispatch(resetTasks());
+                 
+                 // Also stop local uptime tracking
+                 try {
+                   await stopDeviceUptime(deviceId);
+                 } catch (error) {
+                   console.error("❌ Error stopping uptime after session_info:", error);
+                 }
+               }
+             }
+           } else if (action === 'session_recovery_attempt' && deviceId) {
+             // Another tab is trying to recover a session
+             const currentTabId = getTabId();
+             const sessionOwnerTabId = localStorage.getItem("session_owner_tab_id");
+             
+             if (deviceId === selectedNodeId && sessionVerified && deviceSessionToken && sessionOwnerTabId === currentTabId) {
+               // We already own this session, notify the other tab
+               console.log(`🛑 Blocking session recovery attempt for device ${deviceId} - we own it`);
+               channel.postMessage({
+                 action: 'session_info',
+                 deviceId: selectedNodeId,
+                 sessionToken: deviceSessionToken,
+                 owner: true,
+                 ownerTabId: currentTabId
+               });
+             }
+           } else if (action === 'session_invalid' && deviceId) {
+            // Session was determined to be invalid
+            if (deviceId === selectedNodeId) {
+              // If we were verified, but the session is now invalid, update our state
+              if (sessionVerified) {
+                console.log(`⚠️ Our session for device ${deviceId} is now invalid`);
+                setSessionVerified(false);
+                
+                // If we think we're running this device, stop it
+                if (node.isActive) {
+                  dispatch(stopNode());
+                  dispatch(resetTasks());
+                }
+              }
+            }
+                     } else if (action === 'new_tab_detected' && deviceId) {
+             // A new tab has been opened and detected an active session
+             const currentTabId = getTabId();
+             const sessionOwnerTabId = localStorage.getItem("session_owner_tab_id");
+             
+             if (deviceId === selectedNodeId && sessionVerified && sessionOwnerTabId === currentTabId) {
+               // We're the owner of this session, so respond to confirm our ownership
+               console.log(`📣 New tab detected - confirming our ownership of device ${deviceId}`);
+               channel.postMessage({
+                 action: 'session_info',
+                 deviceId: selectedNodeId,
+                 sessionToken: deviceSessionToken,
+                 owner: true,
+                 ownerTabId: currentTabId,
+                 // This flag tells the new tab not to show an alert
+                 newTabResponse: true
+               });
+             }
+                      } else if (action === 'check_node_status') {
+             // Someone is asking about all running nodes - respond if we have an active one
+             const currentTabId = getTabId();
+             const sessionOwnerTabId = localStorage.getItem("session_owner_tab_id");
+             
+             if (sessionVerified && deviceSessionToken && selectedNodeId && node.isActive && sessionOwnerTabId === currentTabId) {
+               console.log(`📊 Responding to node status check - we have active node ${selectedNodeId}`);
+               channel.postMessage({
+                 action: 'node_status_update',
+                 deviceId: selectedNodeId,
+                 sessionToken: deviceSessionToken,
+                 isActive: true,
+                 owner: true,
+                 ownerTabId: currentTabId
+               });
+             }
+           }
+        };
+        
+        setBroadcastChannel(channel);
+        
+        // Notify other tabs about our arrival and query for active sessions
+        channel.postMessage({
+          action: 'verify_sessions'
+        });
+        
+        return () => {
+          // Clean up broadcast channel on unmount
+          channel.close();
+        };
+      }
+    } catch (error) {
+      console.error('Failed to initialize broadcast channel:', error);
+    }
+  }, [dispatch, node.isActive, selectedNodeId, sessionVerified, deviceSessionToken]);
 
   // FIX: Enhanced earnings loading with migration check
   useEffect(() => {
@@ -812,9 +1173,19 @@ export const NodeControlPanel = () => {
     }
   }, [claimSuccess, resetClaimState]);
 
-  // FIX: Enhanced page unload handling with better error recovery
+  // FIX: Enhanced page unload handling with better error recovery and session management
   useEffect(() => {
-    const handleBeforeUnload = async () => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      // Check if node is running and prevent tab close with a confirmation dialog
+      if (node.isActive || (selectedNodeId && isDeviceRunning(selectedNodeId))) {
+        // Standard way to show a confirmation dialog when closing the tab
+        const message = "WARNING: Node is currently running. Closing this tab will stop the node and may result in lost earnings. Please stop the node properly before closing.";
+        event.preventDefault();
+        event.returnValue = message; // Legacy for older browsers
+        return message; // Modern browsers
+      }
+
+      // First handle session earnings
       if (sessionEarnings > 0) {
         try {
           // FIX: Use both sendBeacon AND fetch for redundancy
@@ -835,7 +1206,7 @@ export const NodeControlPanel = () => {
           // FIX: Fallback method if beacon fails
           if (!beaconSent) {
             try {
-              await fetch("/api/unclaimed-rewards", {
+              fetch("/api/unclaimed-rewards", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: data,
@@ -850,9 +1221,144 @@ export const NodeControlPanel = () => {
           console.error("❌ Error in beforeunload handler:", error);
         }
       }
+      
+      // Only clear session if this tab owns the session
+      if (selectedNodeId && sessionVerified && sessionExists) {
+        try {
+          // Create a cleanup payload
+          const cleanupData = JSON.stringify({
+            deviceId: selectedNodeId,
+            sessionToken: deviceSessionToken
+          });
+          
+          // Use sendBeacon for reliable cleanup
+          const blob = new Blob([cleanupData], { type: "application/json" });
+          navigator.sendBeacon("/api/device-session/cleanup", blob);
+          
+                     // Also send final broadcast to other tabs before we go
+           if (broadcastChannel) {
+             try {
+               broadcastChannel.postMessage({
+                 action: 'device_inactive',
+                 deviceId: selectedNodeId,
+                 final: true,
+                 tabClosing: true,
+                 timestamp: Date.now()
+               });
+             } catch (broadcastError) {
+               // Ignore errors during page unload
+             }
+           }
+          
+          console.log(`🧹 Session cleanup request sent for device ${selectedNodeId}`);
+        } catch (error) {
+          console.error("❌ Error in session cleanup:", error);
+        }
+      }
+    };
+
+    // NEW: Handle tab close/unload event to reset device status
+    const handleUnload = (event: Event) => {
+      // Check if node is running and we have a selected device
+      if ((node.isActive || (selectedNodeId && isDeviceRunning(selectedNodeId))) && selectedNodeId) {
+        console.log(`🔄 Tab closing: Resetting device status for ${selectedNodeId}`);
+        
+        try {
+          // Create payload for device status reset
+          const resetData = {
+            deviceId: selectedNodeId,
+            userId: user?.id || "unknown",
+            action: "reset_status",
+            timestamp: Date.now()
+          };
+          
+          // Use sendBeacon for reliable delivery during tab close
+          const blob = new Blob([JSON.stringify(resetData)], { type: "application/json" });
+          const beaconSent = navigator.sendBeacon("/api/close", blob);
+          
+          console.log(`📤 Tab close beacon sent: ${beaconSent} for device ${selectedNodeId}`);
+          
+          // Also try to save any unsaved earnings
+          if (sessionEarnings > 0) {
+            const earningsData = JSON.stringify({ 
+              amount: dbUnclaimedRewards + sessionEarnings,
+              deviceId: selectedNodeId,
+              userId: user?.id || "unknown"
+            });
+            const earningsBlob = new Blob([earningsData], { type: "application/json" });
+            navigator.sendBeacon("/api/unclaimed-rewards", earningsBlob);
+            console.log(`💰 Tab close: Saved earnings beacon sent`);
+          }
+          
+        } catch (error) {
+          console.error("❌ Error in tab close handler:", error);
+        }
+      }
     };
 
     const handleVisibilityChange = async () => {
+      // When page becomes visible, check if our session is still valid
+      if (document.visibilityState === "visible" && selectedNodeId) {
+        console.log("🔍 Page visible: Checking session validity...");
+        
+        try {
+          // Notify other tabs we're back and check for session status
+          if (broadcastChannel) {
+            console.log("📢 Broadcasting tab activation");
+            broadcastChannel.postMessage({
+              action: 'verify_sessions'
+            });
+          }
+          
+          // Check if the session is still valid after returning to the page
+          if (deviceSessionToken && sessionExists) {
+            const isValid = await verifySessionOwnership(selectedNodeId, deviceSessionToken);
+            
+            // If we've lost our session while away, update the UI
+            if (!isValid && sessionVerified) {
+              console.log("⚠️ Session was invalidated while tab was inactive");
+              setSessionVerified(false);
+              
+              // If our Redux state thinks the node is active but session is invalid,
+              // update Redux state to inactive
+              if (node.isActive) {
+                dispatch(stopNode());
+                dispatch(resetTasks());
+                
+                // Alert the user
+                alert("Your node session was stopped in another tab or browser.");
+              }
+            } else if (isValid && sessionVerified) {
+                             // We still own the session, broadcast to other tabs
+               if (broadcastChannel) {
+                 const currentTabId = getTabId();
+                 broadcastChannel.postMessage({
+                   action: 'device_active',
+                   deviceId: selectedNodeId,
+                   sessionToken: deviceSessionToken,
+                   owner: true,
+                   ownerTabId: currentTabId,
+                   timestamp: Date.now()
+                 });
+               }
+            }
+          } else if (selectedNodeId) {
+            // Also check with server directly for the latest status
+            const sessionCheck = await checkDeviceSession(selectedNodeId);
+            
+            // Update our state based on server check
+            if (sessionCheck.hasActiveSession !== sessionExists) {
+              console.log(`🔄 Updating session status from server: active=${sessionCheck.hasActiveSession}`);
+              setSessionExists(sessionCheck.hasActiveSession);
+              setSessionVerified(false);  // Default to false until we verify ownership
+            }
+          }
+        } catch (error) {
+          console.error("❌ Error checking session validity:", error);
+        }
+      }
+      
+      // When page hides and we have unsaved earnings, save them
       if (document.visibilityState === "hidden" && sessionEarnings > 0) {
         console.log(
           "📱 Page hidden: Saving session earnings:",
@@ -872,15 +1378,110 @@ export const NodeControlPanel = () => {
         }
       }
     };
+    
+         // Enhanced session recovery for page reload/navigation with broadcast channel support
+     const attemptSessionRecovery = async () => {
+       const storedDeviceId = localStorage.getItem("device_session_deviceId");
+       const storedToken = localStorage.getItem("device_session_token");
+       const sessionOwnerTabId = localStorage.getItem("session_owner_tab_id");
+       const currentTabId = getTabId();
+       
+       // CRITICAL FIX: Only attempt recovery if this tab was the original owner
+       if (storedDeviceId && storedToken && selectedNodeId === storedDeviceId && sessionOwnerTabId === currentTabId) {
+         console.log(`🔄 Attempting to recover session for device: ${storedDeviceId} (owner tab)`);
+         
+         try {
+           // First query all tabs to see if someone else already has this session
+           if (broadcastChannel) {
+             console.log(`📢 Broadcasting session recovery attempt for device ${storedDeviceId}`);
+             broadcastChannel.postMessage({
+               action: 'session_recovery_attempt',
+               deviceId: storedDeviceId,
+               sessionToken: storedToken,
+               ownerTabId: currentTabId
+             });
+             
+             // Short delay to allow other tabs to respond
+             await new Promise(resolve => setTimeout(resolve, 300));
+           }
+           
+           // Then verify with the server
+           const isValid = await verifySessionOwnership(storedDeviceId, storedToken);
+           
+           if (isValid) {
+             console.log(`✅ Successfully recovered session for device ${storedDeviceId}`);
+             setDeviceSessionToken(storedToken);
+             setSessionVerified(true);
+             setSessionExists(true);
+             
+             // Update Redux state to reflect the active session
+             if (!node.isActive) {
+               dispatch(startNode());
+             }
+             
+             // Make sure we reconnect to the right session
+             await syncDeviceUptime(storedDeviceId, true);
+             
+             // Verify device is still marked as busy on the server
+             await updateDeviceStatus(storedDeviceId, "busy", true);
+             
+             // Broadcast to other tabs that we own this session now
+             if (broadcastChannel) {
+               broadcastChannel.postMessage({
+                 action: 'device_active',
+                 deviceId: storedDeviceId,
+                 sessionToken: storedToken,
+                 owner: true,
+                 recovered: true,
+                 ownerTabId: currentTabId
+               });
+             }
+           } else {
+             console.log(`⚠️ Could not verify session ownership for stored token`);
+             // Clear invalid session data
+             localStorage.removeItem("device_session_token");
+             localStorage.removeItem("device_session_deviceId");
+             localStorage.removeItem("session_owner_tab_id");
+             
+             // Broadcast that this session is invalid
+             if (broadcastChannel) {
+               broadcastChannel.postMessage({
+                 action: 'session_invalid',
+                 deviceId: storedDeviceId
+               });
+             }
+           }
+         } catch (error) {
+           console.error("❌ Error during session recovery:", error);
+         }
+       } else if (storedDeviceId && storedToken && sessionOwnerTabId !== currentTabId) {
+         console.log(`⚠️ Found session data but this tab is not the owner - ignoring recovery`);
+       }
+     };
+    
+    // Try to recover session when component mounts
+    if (selectedNodeId && !sessionVerified && sessionCheckComplete) {
+      attemptSessionRecovery();
+    }
 
+    // Add event listeners for page unload and tab close
     window.addEventListener("beforeunload", handleBeforeUnload);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("unload", handleUnload);
 
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("unload", handleUnload);
     };
-  }, [sessionEarnings, dbUnclaimedRewards]);
+  }, [
+    sessionEarnings, 
+    dbUnclaimedRewards, 
+    selectedNodeId, 
+    sessionVerified, 
+    sessionExists, 
+    deviceSessionToken,
+    sessionCheckComplete,
+    node.isActive
+  ]);
 
   // For demo purposes - in a real implementation this would be derived from the selected node ID
   const selectedNode = nodes.find((node) => node.id === selectedNodeId);
@@ -936,7 +1537,7 @@ export const NodeControlPanel = () => {
     };
   }, [selectedNodeId]);
 
-  // FIX: Enhanced device initialization with proper server sync and migration
+  // FIX: Enhanced device initialization with proper server sync, migration, and session verification
   useEffect(() => {
     if (!user?.id || hasFetchedDevices) return;
 
@@ -964,6 +1565,48 @@ export const NodeControlPanel = () => {
         const { devices } = await response.json();
         console.log(`📱 Fetched ${devices.length} devices from server`);
 
+        // Look for any device with an active session
+        let activeSessionDevice: SupabaseDevice | undefined;
+        const hasActiveSession = devices.some((device: SupabaseDevice) => {
+          const isActive = device.status === "busy" && device.session_token;
+          if (isActive) {
+            activeSessionDevice = device;
+            // Store active session token for later verification
+            const storedDeviceId = localStorage.getItem("device_session_deviceId");
+            const storedToken = localStorage.getItem("device_session_token");
+            
+            // Only update if different to avoid unnecessary rerenders
+            if (storedDeviceId !== device.id || storedToken !== device.session_token) {
+              console.log(`🔑 Found active session for device ${device.id}`);
+              localStorage.setItem("device_session_deviceId", device.id);
+              localStorage.setItem("device_session_token", device.session_token || "");
+              setDeviceSessionToken(device.session_token);
+            }
+          }
+          return isActive;
+        });
+
+        if (activeSessionDevice) {
+          console.log(`🚨 Device ${activeSessionDevice.id} has an active session`);
+          setSessionExists(true);
+          
+          // CRITICAL FIX: If Redux state thinks we're active but we don't own the session,
+          // immediately stop task processing to prevent double counting
+          if (node.isActive) {
+            console.log(`⚠️ New tab loaded with active node state but session exists elsewhere - stopping tasks`);
+            dispatch(stopNode());
+            dispatch(resetTasks());
+          }
+          
+          // Broadcast to existing tabs that we've detected this session
+          if (broadcastChannel) {
+            broadcastChannel.postMessage({
+              action: 'new_tab_detected',
+              deviceId: activeSessionDevice.id
+            });
+          }
+        }
+
         const mappedNodes: NodeInfo[] = devices.map(
           (device: SupabaseDevice) => ({
             id: device.id,
@@ -976,7 +1619,7 @@ export const NodeControlPanel = () => {
             type: device.device_type,
             rewardTier: device.reward_tier || "cpu",
             status:
-              device.status === "online"
+              device.status === "busy"
                 ? "running"
                 : device.status === "offline"
                 ? "idle"
@@ -1034,26 +1677,144 @@ export const NodeControlPanel = () => {
           }, 100 * mappedNodes.indexOf(mappedNode)); // Stagger syncs
         }
 
-        if (mappedNodes.length > 0 && !selectedNodeId) {
-          setSelectedNodeId(mappedNodes[0].id);
-        }
+                 // If there's an active session, select that device first
+         if (activeSessionDevice) {
+           setSelectedNodeId(activeSessionDevice.id);
+           
+           // CRITICAL FIX: New tabs should NEVER claim ownership automatically
+           // Only verify ownership if this tab has a specific ownership marker
+           const currentTabId = getTabId();
+           const sessionOwnerTabId = localStorage.getItem("session_owner_tab_id");
+           const storedDeviceId = localStorage.getItem("device_session_deviceId");
+           
+           console.log(`🔍 Tab ownership check - Current: ${currentTabId}, Owner: ${sessionOwnerTabId}, Device: ${storedDeviceId}`);
+           
+           if (deviceSessionToken && sessionOwnerTabId === currentTabId && storedDeviceId === activeSessionDevice.id) {
+             // This tab is marked as the session owner, verify with server
+             const isValid = await verifySessionOwnership(
+               activeSessionDevice.id,
+               deviceSessionToken
+             );
+             setSessionVerified(isValid);
+             
+             if (isValid) {
+               console.log(`✅ Current tab owns the active session for device ${activeSessionDevice.id}`);
+               
+               // If we own the session but Redux state isn't active, update it
+               if (!node.isActive) {
+                 dispatch(startNode());
+               }
+             } else {
+               console.log(`⚠️ Session ownership verification failed - clearing ownership`);
+               // Clear invalid ownership markers
+               localStorage.removeItem("session_owner_tab_id");
+               localStorage.removeItem("device_session_token");
+               localStorage.removeItem("device_session_deviceId");
+               setSessionVerified(false);
+               
+               // Ensure tasks are stopped if we don't own the session
+               if (node.isActive) {
+                 dispatch(stopNode());
+                 dispatch(resetTasks());
+               }
+             }
+           } else {
+             // This tab is NOT the session owner
+             console.log(`⚠️ New tab detected active session but not claiming ownership - other tab owns it`);
+             setSessionVerified(false);
+             setSessionExists(true);
+             
+             // Ensure Redux state is inactive for new tabs
+             if (node.isActive) {
+               console.log(`🛑 Stopping node in new tab - session owned elsewhere`);
+               dispatch(stopNode());
+               dispatch(resetTasks());
+             }
+           }
+         } else if (mappedNodes.length > 0 && !selectedNodeId) {
+           setSelectedNodeId(mappedNodes[0].id);
+         }
 
         setHasFetchedDevices(true);
+        setSessionCheckComplete(true);
         console.log(
           "✅ All devices initialized with server-authoritative uptime"
         );
       } catch (err) {
         console.error("Exception while fetching devices:", err);
+        setSessionCheckComplete(true);
       } finally {
         setIsLoadingDevices(false);
       }
     };
 
     fetchUserDevices();
-  }, [user?.id, hasFetchedDevices, initializeDeviceUptime, syncDeviceUptime]);
+  }, [user?.id, hasFetchedDevices, initializeDeviceUptime, syncDeviceUptime, deviceSessionToken, node.isActive, node.isRegistered, dispatch, broadcastChannel]);
 
-  // FIX: Enhanced node selection with better validation
-  const handleNodeSelect = (nodeId: string) => {
+  // FIX: Enhanced node selection with better validation, session verification, and broadcast channel
+  const handleNodeSelect = async (nodeId: string) => {
+    if (nodeId === selectedNodeId) return;
+    
+    // Check if current node is running and warn user about device change
+    if (node.isActive || isDeviceRunning(selectedNodeId)) {
+      const confirmChange = confirm("You are about to change devices while a node is running. This will stop the current node. Do you want to continue?");
+      if (!confirmChange) {
+        return;
+      }
+      
+      // Stop the current node before switching
+      console.log(`🛑 Stopping current node before device switch: ${selectedNodeId}`);
+      setIsStopping(true);
+      
+      try {
+        // Save any unsaved session earnings
+        if (sessionEarnings > 0) {
+          console.log("🛑 Device switch: Saving session earnings to DB:", sessionEarnings);
+          const saveSuccess = await saveSessionEarningsToDb(true);
+          if (!saveSuccess) {
+            console.error("❌ Failed to save session earnings before device switch");
+          }
+        }
+
+        // Update device status to offline
+        await updateDeviceStatus(selectedNodeId, "offline");
+
+        // Stop uptime tracking and update server
+        const result = await stopDeviceUptime(selectedNodeId);
+        if (result.success) {
+          console.log("✅ Node stopped for device switch");
+        } else {
+          console.error("❌ Failed to update uptime during device switch:", result.error);
+        }
+
+        // Stop Redux state and tasks
+        dispatch(stopNode());
+        dispatch(resetTasks());
+
+        // Clear session data
+        localStorage.removeItem("device_session_token");
+        localStorage.removeItem("device_session_deviceId");
+        localStorage.removeItem("session_owner_tab_id");
+        setDeviceSessionToken(null);
+        setSessionVerified(false);
+        setSessionExists(false);
+
+        // Broadcast to other tabs
+        if (broadcastChannel) {
+          broadcastChannel.postMessage({
+            action: 'device_inactive',
+            deviceId: selectedNodeId,
+            stoppedByUser: true,
+            timestamp: Date.now()
+          });
+        }
+      } catch (error) {
+        console.error("❌ Error stopping node for device switch:", error);
+      } finally {
+        setIsStopping(false);
+      }
+    }
+    
     // Allow switching devices for viewing purposes
     console.log(`🔄 Switching to device: ${nodeId}`);
     setSelectedNodeId(nodeId);
@@ -1062,6 +1823,58 @@ export const NodeControlPanel = () => {
     const selectedDevice = nodes.find((node) => node.id === nodeId);
     if (selectedDevice) {
       trackEvent("device_selected", "device_management", selectedDevice.type);
+    }
+    
+    // Check if the device has an active session
+    const { hasActiveSession, sessionToken } = await checkDeviceSession(nodeId);
+    
+    if (hasActiveSession) {
+      setSessionExists(true);
+      
+      // If we have a stored session token, check if we own it
+      const storedToken = localStorage.getItem("device_session_token");
+      if (storedToken && storedToken === sessionToken) {
+        console.log(`🔑 Found matching session token for device ${nodeId}`);
+        
+        // Verify session ownership
+        const isValid = await verifySessionOwnership(nodeId, storedToken);
+        setSessionVerified(isValid);
+        
+        if (isValid) {
+          console.log(`✅ Current tab owns the active session for device ${nodeId}`);
+          
+          // Update Redux state to reflect active session
+          if (!node.isActive) {
+            dispatch(startNode());
+          }
+          
+          // Broadcast session ownership to other tabs
+          if (broadcastChannel) {
+            broadcastChannel.postMessage({
+              action: 'device_active',
+              deviceId: nodeId,
+              sessionToken: storedToken,
+              owner: true
+            });
+          }
+        } else {
+          console.log(`⚠️ Session exists but is owned by another tab/device`);
+        }
+      } else {
+        setSessionVerified(false);
+        console.log(`⚠️ Device ${nodeId} has an active session in another tab/device`);
+        
+        // Query all tabs for the latest session status
+        if (broadcastChannel) {
+          broadcastChannel.postMessage({
+            action: 'verify_sessions'
+          });
+        }
+      }
+    } else {
+      // No active session for this device
+      setSessionExists(false);
+      setSessionVerified(false);
     }
 
     // FIX: Sync the newly selected device immediately
@@ -1254,14 +2067,14 @@ export const NodeControlPanel = () => {
     stopDeviceUptime,
   ]);
 
-  // FIX: ENHANCED toggle node status with pre-validation and server sync
+  // FIX: ENHANCED toggle node status with pre-validation, server sync, session management, and broadcast channel
   const toggleNodeStatus = async () => {
     if (!selectedNodeId) return;
 
     const deviceCurrentlyRunning = isDeviceRunning(selectedNodeId);
 
     if (deviceCurrentlyRunning || node.isActive) {
-      // STOP LOGIC - Enhanced with better error handling
+      // STOP LOGIC - Enhanced with better error handling and session clearing
       setIsStopping(true);
 
       try {
@@ -1273,8 +2086,47 @@ export const NodeControlPanel = () => {
           trackNodeAction("stop", selectedDevice.type);
         }
 
-        // Update device status to offline
-        await updateDeviceStatus(selectedNodeId, "offline");
+        // Use the dedicated device session stop API
+        try {
+          const stopResponse = await fetch("/api/device-session/stop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              deviceId: selectedNodeId,
+              sessionToken: deviceSessionToken
+            })
+          });
+          
+          if (!stopResponse.ok) {
+            console.error(`❌ Failed to stop session via API: ${stopResponse.status}`);
+          } else {
+            console.log("✅ Device session stopped via dedicated API");
+          }
+        } catch (stopError) {
+          console.error("❌ Error stopping session via API:", stopError);
+        }
+        
+        // Also update device status locally as fallback
+        const updateResult = await updateDeviceStatus(selectedNodeId, "offline");
+
+                 // Clear session data from local storage
+         localStorage.removeItem("device_session_token");
+         localStorage.removeItem("device_session_deviceId");
+         localStorage.removeItem("session_owner_tab_id"); // CRITICAL: Clear ownership marker
+         setDeviceSessionToken(null);
+         setSessionVerified(false);
+         setSessionExists(false);
+        
+                 // Broadcast to other tabs that this device is now inactive
+         if (broadcastChannel) {
+           broadcastChannel.postMessage({
+             action: 'device_inactive',
+             deviceId: selectedNodeId,
+             // Include additional info to help other tabs sync properly
+             stoppedByUser: true,
+             timestamp: Date.now()
+           });
+         }
 
         // Save any unsaved session earnings before stopping the node
         if (sessionEarnings > 0) {
@@ -1302,14 +2154,27 @@ export const NodeControlPanel = () => {
         console.error("Error stopping node:", error);
       }
 
-      setTimeout(() => {
-        dispatch(stopNode());
-        dispatch(resetTasks());
-        setIsStopping(false);
-        console.log("🛑 Node stop completed");
-      }, 2000);
+             setTimeout(() => {
+         dispatch(stopNode());
+         dispatch(resetTasks());
+         setIsStopping(false);
+         console.log("🛑 Node stop completed");
+       }, 2000);
     } else {
-      // START LOGIC - Check if any other device is running first
+      // START LOGIC - First check for active sessions on this device or others
+      
+      // Check if the selected device already has an active session
+      const sessionCheck = await checkDeviceSession(selectedNodeId);
+      
+      if (sessionCheck.hasActiveSession) {
+        setIsStarting(false);
+        alert(
+          `Cannot start this node. It is already running in another browser or tab.\n\nOnly one active session per device is allowed.`
+        );
+        return;
+      }
+      
+      // Check if any other device is running first
       const anyOtherDeviceRunning = deviceUptimeList.some(
         (device) => device.isRunning && device.deviceId !== selectedNodeId
       );
@@ -1324,6 +2189,31 @@ export const NodeControlPanel = () => {
           `Cannot start this device while "${runningDeviceName}" is running. Please stop the current device first.`
         );
         return;
+      }
+
+      // Check if any other device has an active session globally
+      const anyActiveSession = nodes.some(node => {
+        // Skip the selected node as we already checked it
+        if (node.id === selectedNodeId) return false;
+        return node.status === "running";
+      });
+
+      if (anyActiveSession) {
+        alert(
+          "Cannot start this device. Another device is already running in a different browser or tab.\n\nOnly one active device per user is allowed."
+        );
+        return;
+      }
+      
+      // Also check with broadcast channel for immediate feedback
+      if (broadcastChannel) {
+        // Query all tabs for active sessions
+        broadcastChannel.postMessage({
+          action: 'verify_sessions'
+        });
+        
+        // Small delay to allow responses to come in (improved UX)
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
 
       // START LOGIC - CRITICAL FIXES for uptime validation
@@ -1372,7 +2262,46 @@ export const NodeControlPanel = () => {
           return;
         }
 
-        // FIX: Step 6 - Proceed with start only after all validations pass
+        // FIX: Step 6 - Create a new session token and update device status
+        const sessionToken = generateSessionToken();
+        console.log(`🔑 Generated new session token for device ${selectedNodeId}`);
+        
+        // Update device with new session token
+        const updateResult = await updateDeviceStatus(selectedNodeId, "busy", true);
+        
+        if (!updateResult.success) {
+          setIsStarting(false);
+          alert("Failed to start node. Could not create session.");
+          return;
+        }
+        
+                 // Store the session token in localStorage for retrieval
+         if (updateResult.sessionToken) {
+           const currentTabId = getTabId();
+           
+           localStorage.setItem("device_session_token", updateResult.sessionToken);
+           localStorage.setItem("device_session_deviceId", selectedNodeId);
+           // CRITICAL: Mark this tab as the session owner
+           localStorage.setItem("session_owner_tab_id", currentTabId);
+           
+           setDeviceSessionToken(updateResult.sessionToken);
+           setSessionVerified(true);
+           setSessionExists(true);
+           
+           console.log(`🔑 Tab ${currentTabId} now owns session for device ${selectedNodeId}`);
+           
+           // Broadcast to other tabs that this device is now active
+           if (broadcastChannel) {
+             broadcastChannel.postMessage({
+               action: 'device_active',
+               deviceId: selectedNodeId,
+               sessionToken: updateResult.sessionToken,
+               ownerTabId: currentTabId
+             });
+           }
+         }
+
+        // FIX: Step 7 - Proceed with start only after all validations pass
         console.log("✅ All pre-start checks passed, starting node...");
 
         // Track node start
@@ -1381,13 +2310,13 @@ export const NodeControlPanel = () => {
           trackNodeAction("start", selectedDevice.type);
         }
 
-        await updateDeviceStatus(selectedNodeId, "busy");
+        // Start uptime tracking
         startDeviceUptime(selectedNodeId);
 
         setTimeout(() => {
           dispatch(startNode());
           setIsStarting(false);
-          console.log("🟢 Node started successfully");
+          console.log("🟢 Node started successfully with session token");
         }, 2000);
       } catch (error) {
         console.error("❌ Error starting node:", error);
@@ -1720,20 +2649,39 @@ export const NodeControlPanel = () => {
     );
   };
 
-  // FIX: Enhanced start button with better state management
-  const renderStartStopButton = () => {
-    const deviceCurrentlyRunning = isDeviceRunning(selectedNodeId);
-    const isNodeActive = node.isActive || deviceCurrentlyRunning;
-    const isProcessing = isStarting || isStopping || isUpdatingUptime;
-    const isSyncing = syncingDeviceId === selectedNodeId;
-
-    // FIX: Better disabled state logic
-    const isDisabled =
-      isProcessing ||
-      !selectedNodeId ||
-      isSyncing ||
-      (uptimeExceeded && !isNodeActive) ||
-      !isLoggedIn;
+     // FIX: Enhanced start button with better state management and session awareness
+   const renderStartStopButton = () => {
+     const deviceCurrentlyRunning = isDeviceRunning(selectedNodeId);
+     const isNodeActive = node.isActive || deviceCurrentlyRunning;
+     const isProcessing = isStarting || isStopping || isUpdatingUptime;
+     const isSyncing = syncingDeviceId === selectedNodeId;
+     
+     // Check if this device has an active session elsewhere that we don't own
+     const hasActiveSessionElsewhere = sessionExists && !sessionVerified;
+ 
+     // CRITICAL FIX: Different disable logic for start vs stop buttons
+     let isDisabled;
+     
+     if (isNodeActive) {
+       // For STOP button: only disable if we don't own the session or general conditions
+       isDisabled = 
+         isProcessing ||
+         !selectedNodeId ||
+         isSyncing ||
+         !isLoggedIn ||
+         // Only disable stop if we don't own the session
+         (hasActiveSessionElsewhere && !sessionVerified);
+     } else {
+       // For START button: disable if active elsewhere or general conditions
+       isDisabled =
+         isProcessing ||
+         !selectedNodeId ||
+         isSyncing ||
+         uptimeExceeded ||
+         !isLoggedIn ||
+         // Disable start if the device is active elsewhere
+         hasActiveSessionElsewhere;
+     }
 
     const getButtonText = () => {
       if (isUpdatingUptime) return "Updating...";
@@ -1744,6 +2692,7 @@ export const NodeControlPanel = () => {
       if (isNodeActive) return "Stop Node";
       if (uptimeExceeded) return "Uptime Limit Reached";
       if (!isLoggedIn) return "Login Required";
+      if (hasActiveSessionElsewhere) return "Running In Another Tab";
 
       return "Start Node";
     };
@@ -1762,6 +2711,10 @@ export const NodeControlPanel = () => {
       if (uptimeExceeded) {
         return <AlertTriangle className="text-white/90 ml-1 sm:ml-2" />;
       }
+      
+      if (hasActiveSessionElsewhere) {
+        return <AlertTriangle className="text-white/90 ml-1 sm:ml-2" />;
+      }
 
       return <VscDebugStart className="text-white/90 ml-1 sm:ml-2" />;
     };
@@ -1774,22 +2727,56 @@ export const NodeControlPanel = () => {
       if (uptimeExceeded || !isLoggedIn) {
         return "bg-gray-600 hover:bg-gray-700 cursor-not-allowed opacity-50";
       }
+      
+      if (hasActiveSessionElsewhere) {
+        return "bg-amber-600 hover:bg-amber-700 cursor-not-allowed opacity-90";
+      }
 
       return "bg-green-600 hover:bg-green-700 hover:shadow-green-500/30 shadow-green-500";
     };
+    
+    const getButtonTooltip = () => {
+      if (hasActiveSessionElsewhere) {
+        return "This device is already active in another browser or tab. Close the other tab to control it here.";
+      }
+      return null;
+    };
 
     return (
-      <Button
-        variant="default"
-        disabled={isDisabled}
-        onClick={toggleNodeStatus}
-        className={`w-[22%] rounded-full transition-all duration-300 shadow-md hover:shadow-lg text-white text-xs sm:text-sm px-3 py-1 sm:px-4 sm:py-2 h-9 sm:h-10 hover:translate-y-[-0.5px] ${getButtonStyle()}`}
-      >
-        {getButtonText()}
-        {getButtonIcon()}
-      </Button>
+      <div className="relative w-[22%]">
+        <Button
+          variant="default"
+          disabled={isDisabled}
+          onClick={toggleNodeStatus}
+          className={`w-full rounded-full transition-all duration-300 shadow-md hover:shadow-lg text-white text-xs sm:text-sm px-3 py-1 sm:px-4 sm:py-2 h-9 sm:h-10 hover:translate-y-[-0.5px] ${getButtonStyle()}`}
+          title={getButtonTooltip() || undefined}
+        >
+          {getButtonText()}
+          {getButtonIcon()}
+        </Button>
+        {hasActiveSessionElsewhere && (
+          <div className="absolute -bottom-5 left-0 right-0 text-[10px] text-amber-400 text-center">
+            Running elsewhere
+          </div>
+        )}
+      </div>
     );
   };
+
+     // Simple tab communication without periodic checks
+   useEffect(() => {
+     if (!selectedNodeId || !broadcastChannel || !isMounted) return;
+
+     // Only do initial check right after mounting - no periodic checks
+     if (broadcastChannel) {
+       setTimeout(() => {
+         // Just query for existing sessions, don't force sync
+         broadcastChannel.postMessage({
+           action: 'verify_sessions'
+         });
+       }, 1000);
+     }
+   }, [selectedNodeId, broadcastChannel, isMounted]);
 
   // FIX: Add cleanup effect for timeouts
   useEffect(() => {
@@ -1936,6 +2923,26 @@ export const NodeControlPanel = () => {
               <AlertTriangle className="w-[15px] h-[15px] text-yellow-500 flex-shrink-0" />
               <span className="text-xs text-yellow-200">
                 Login required to start node and track uptime
+              </span>
+            </div>
+          )}
+          
+          {/* FIX: Session status warning */}
+          {isLoggedIn && sessionExists && !sessionVerified && (
+            <div className="mb-4 p-3 rounded-full bg-red-900/20 border border-red-500/30 flex items-center gap-2">
+              <AlertTriangle className="w-[15px] h-[15px] text-red-500 flex-shrink-0" />
+              <span className="text-xs text-red-200">
+                This device is currently active in another browser or tab
+              </span>
+            </div>
+          )}
+          
+          {/* FIX: Session verified confirmation */}
+          {isLoggedIn && sessionExists && sessionVerified && (
+            <div className="mb-4 p-3 rounded-full bg-green-900/20 border border-green-500/30 flex items-center gap-2">
+              <Clock className="w-[15px] h-[15px] text-green-500 flex-shrink-0" />
+              <span className="text-xs text-green-200">
+                Active session: This tab is controlling the device
               </span>
             </div>
           )}
