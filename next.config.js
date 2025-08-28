@@ -12,7 +12,7 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   // Netlify specific configuration
-  output: 'export',
+  // Removed output: 'export' to allow API routes to work properly
   images: {
     unoptimized: true,
     domains: ['localhost'],

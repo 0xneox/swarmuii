@@ -18,8 +18,5 @@
   status = 301
   force = true
 
-# Handle Next.js routing
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+# Let the Next.js plugin handle routing
+# Removed static redirect to index.html
