@@ -1,14 +1,16 @@
 [build]
   command = "npm run build"
   publish = ".next"
-  functions = "out"
 
 [build.environment]
   NODE_VERSION = "20.x"
-  NPM_FLAGS = "--legacy-peer-deps"
+  NPM_FLAGS = "--legacy-peer-deps --no-optional"
   NEXT_TELEMETRY_DISABLED = "1"
 
-# Redirect all requests to Next.js
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Handle SPA routing
 [[redirects]]
   from = "/*"
   to = "/index.html"
