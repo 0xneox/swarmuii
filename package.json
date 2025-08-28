@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": "18.x"
+    "node": "20.18.0"
   },
   "scripts": {
     "dev": "next dev --turbopack",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@heroicons/react": "^2.0.18",
+    "esbuild": "^0.20.0",
     "@radix-ui/react-dialog": "^1.0.5",
     "@radix-ui/react-label": "^2.0.2",
     "@radix-ui/react-select": "^2.0.0",
