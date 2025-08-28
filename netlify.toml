@@ -1,6 +1,7 @@
 [build]
   command = "npm run build"
-  publish = ".next"
+  publish = ".next/standalone"
+  functions = ".netlify/functions/"
 
 [build.environment]
   NODE_VERSION = "20.x"
@@ -10,8 +11,15 @@
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-# Handle SPA routing
+# Force HTTPS
+[[redirects]]
+  from = "http://:hostName/:splat"
+  to = "https://:hostName/:splat"
+  status = 301
+  force = true
+
+# Handle Next.js routing
 [[redirects]]
   from = "/*"
-  to = "/index.html"
+  to = "/.netlify/functions/server"
   status = 200
