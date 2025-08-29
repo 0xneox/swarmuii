@@ -17,17 +17,45 @@ export const createClient = (request: NextRequest) => {
     supabaseKey!,
     {
       cookies: {
-        getAll() {
-          return request.cookies.getAll()
+        get(name: string) {
+          return request.cookies.get(name)?.value
         },
-        setAll(cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({
-            request,
+        set(name: string, value: string, options: CookieOptions) {
+          request.cookies.set({
+            name,
+            value,
+            ...options,
           })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
+          supabaseResponse = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          })
+          // Enhanced cookie options for Netlify PKCE compatibility
+          const enhancedOptions = {
+            ...options,
+            httpOnly: false, // Allow client-side access for PKCE flow
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax' as const, // More permissive for OAuth callbacks
+            path: '/',
+          };
+          supabaseResponse.cookies.set(name, value, enhancedOptions)
+        },
+        remove(name: string, options: CookieOptions) {
+          request.cookies.set({
+            name,
+            value: '',
+            ...options,
+          })
+          supabaseResponse = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          })
+          supabaseResponse.cookies.set(name, '', {
+            ...options,
+            maxAge: 0,
+          })
         },
       },
     },

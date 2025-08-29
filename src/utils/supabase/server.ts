@@ -23,14 +23,17 @@ export const createClient = async () => {
         },
         set(name: string, value: string, options: CookieOptions) {
           try {
-            cookieStore.set(name, value, {
+            // Enhanced cookie options for Netlify PKCE compatibility
+            const enhancedOptions = {
               ...options,
-              httpOnly: false,
+              httpOnly: false, // Allow client-side access for PKCE flow
               secure: process.env.NODE_ENV === 'production',
-              sameSite: 'lax',
-              path: '/'
-            })
-          } catch {
+              sameSite: 'lax' as const, // More permissive for OAuth callbacks
+              path: '/',
+            };
+            cookieStore.set(name, value, enhancedOptions);
+          } catch (error) {
+            console.warn('Failed to set cookie in server component:', error);
             // The `set` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing
             // user sessions.
@@ -40,15 +43,13 @@ export const createClient = async () => {
           try {
             cookieStore.set(name, '', {
               ...options,
-              maxAge: 0
-            })
-          } catch {
-            // The `remove` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
+              maxAge: 0,
+            });
+          } catch (error) {
+            console.warn('Failed to remove cookie in server component:', error);
           }
         },
-      }
+      },
     },
   );
 };

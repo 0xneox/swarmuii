@@ -18,7 +18,7 @@
   status = 301
   force = true
 
-# Auth callback handling for OAuth PKCE flow - keep Next.js routing
+# Auth callback handling for OAuth PKCE flow - enhanced for Netlify
 [[redirects]]
   from = "/auth/callback"
   to = "/auth/callback"
@@ -32,6 +32,17 @@
     X-XSS-Protection = "1; mode=block"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+    # Enhanced cookie headers for PKCE flow persistence
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+    Expires = "0"
+
+# Ensure cookies are properly handled for auth
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Allow cross-origin cookies for OAuth flows
+    Access-Control-Allow-Credentials = "true"
 
 # Let the Next.js plugin handle routing
 # Removed static redirect to index.html
