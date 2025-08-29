@@ -18,7 +18,7 @@
   status = 301
   force = true
 
-# Auth callback handling for OAuth PKCE flow
+# Auth callback handling for OAuth PKCE flow - keep Next.js routing
 [[redirects]]
   from = "/auth/callback"
   to = "/auth/callback"
