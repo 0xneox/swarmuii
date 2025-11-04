@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { ArrowUpIcon, ClockIcon } from "@heroicons/react/24/outline";
 import { formatNumber } from "@/lib/utils";
 import { usePlan } from "@/contexts/PlanContext";
+import apiClient from "@/lib/api/client";
 
 // Token constant is no longer needed as authentication is handled server-side
 
@@ -122,21 +123,22 @@ export const NetworkStats = () => {
   useEffect(() => {
     const fetchNetworkStats = async () => {
       try {
-        const response = await fetch("/api/dashboard-stats", {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-          },
+        // Use /global-stats endpoint (unified with backend fix)
+        const response = await apiClient.get('/global-stats');
+        const data = response.data?.data || response.data;
+        
+        setStats({
+          total_users: data.total_users || 0,
+          total_compute_generated: data.global_compute_generated || 0,
+          total_tasks: data.total_tasks || 0
         });
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch network stats");
-        }
-
-        const data = await response.json();
-        setStats(data);
       } catch (error) {
         console.error("Error fetching network stats:", error);
+        setStats({
+          total_users: 0,
+          total_compute_generated: 0,
+          total_tasks: 0
+        });
       } finally {
         setLoading(false);
       }

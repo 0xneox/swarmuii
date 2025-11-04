@@ -2,7 +2,6 @@
 
 import { Suspense, useEffect } from "react";
 import Settings from "@/components/Settings";
-import { AuthGuard } from "@/components/AuthGuard";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { usePageAnalytics } from "@/hooks/useAnalytics";
 
@@ -16,11 +15,9 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen">
-      <AuthGuard requireAuth={true}>
-        <Suspense fallback={<LoadingSpinner />}>
-          <Settings />
-        </Suspense>
-      </AuthGuard>
+      <Suspense fallback={<LoadingSpinner />}>
+        <Settings />
+      </Suspense>
     </div>
   );
 }

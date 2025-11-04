@@ -1,16 +1,25 @@
-import { createBrowserClient } from "@supabase/ssr";
+/**
+ * DEPRECATED: Supabase client stub for old routes
+ * 
+ * This is a compatibility layer for old MVP code.
+ * DO NOT USE THIS - Use the Express backend API instead!
+ */
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error(
-    'Missing Supabase environment variables. Please check your .env.local file and ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set.'
-  );
+export function createClient() {
+  console.warn('⚠️ WARNING: Using deprecated Supabase stub. Migrate to new API services in @/lib/api');
+  
+  // Return a minimal mock to prevent crashes
+  return {
+    auth: {
+      getSession: async () => ({ data: { session: null }, error: null }),
+      getUser: async () => ({ data: { user: null }, error: null }),
+      signOut: async () => ({ error: null }),
+    },
+    from: () => ({
+      select: () => ({ data: null, error: new Error('Supabase queries deprecated. Use Express backend') }),
+      insert: () => ({ data: null, error: new Error('Supabase queries deprecated. Use Express backend') }),
+      update: () => ({ data: null, error: new Error('Supabase queries deprecated. Use Express backend') }),
+      delete: () => ({ data: null, error: new Error('Supabase queries deprecated. Use Express backend') }),
+    }),
+  };
 }
-
-export const createClient = () =>
-  createBrowserClient(
-    supabaseUrl,
-    supabaseKey
-  );

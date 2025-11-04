@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect } from "react";
 import { ReferralProgram } from "@/components/ReferralProgram";
-import { AuthGuard } from "@/components/AuthGuard";
+// TODO: Removed AuthGuard - no longer needed
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { usePageAnalytics } from "@/hooks/useAnalytics";
 
@@ -15,12 +15,10 @@ export default function ReferralPage() {
   }, [trackEvent]);
 
   return (
-    <AuthGuard requireAuth={true}>
-      <div className="min-h-screen">
-        <Suspense fallback={<LoadingSpinner />}>
-          <ReferralProgram />
-        </Suspense>
-      </div>
-    </AuthGuard>
+    <div className="min-h-screen">
+      <Suspense fallback={<LoadingSpinner />}>
+        <ReferralProgram />
+      </Suspense>
+    </div>
   );
 }

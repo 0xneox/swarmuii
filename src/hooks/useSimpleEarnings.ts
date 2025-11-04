@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from "react";
-import { useAuth } from "@/contexts/AuthContext";
 
 interface UnclaimedRewardsResponse {
   unclaimed_reward: number;
@@ -26,7 +25,8 @@ export const useSimpleEarnings = () => {
   const [isLoadingTotal, setIsLoadingTotal] = useState(false);
   const [isClaimingRewards, setIsClaimingRewards] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
-  const { session } = useAuth();
+  // TODO: Replace with new auth system
+  const session = null;
 
   // Load unclaimed rewards from Supabase
   const loadUnclaimedRewards = useCallback(async () => {

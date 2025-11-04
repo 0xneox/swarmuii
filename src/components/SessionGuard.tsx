@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useAuth } from "@/contexts/AuthContext";
 import { validateSession } from "@/lib/sessionUtils";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface SessionGuardProps {
   children: React.ReactNode;
@@ -18,6 +18,7 @@ export function SessionGuard({
   fallback = null,
   redirectTo = "/",
 }: SessionGuardProps) {
+  // TODO: Replace with new auth system
   const { user, isLoading } = useAuth();
   const [isValidating, setIsValidating] = useState(true);
   const [sessionValid, setSessionValid] = useState(false);

@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { X, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useSession, WalletType } from "@/hooks/useSession";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
 // Wallet icon paths from public/images folder
@@ -20,14 +21,16 @@ interface WalletModalProps {
   onClose: () => void;
 }
 
-export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
-  const { connectWallet, disconnectWallet, session } = useSession();
-  const [isConnecting, setIsConnecting] = React.useState(false);
-  const [isDisconnecting, setIsDisconnecting] = React.useState(false);
+export default function WalletModal({ isOpen, onClose }: WalletModalProps) {
+  const { user } = useAuth();
+  const { session, connectWallet, disconnectWallet } = useSession();
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
 
-  // Check if user is logged in and has a wallet
-  const isLoggedIn = session.userId !== "guest" && session.userId !== null;
-  const hasWallet = !!session.walletAddress;
+  // Check if wallet is connected - Check both session and user object
+  const walletAddress = (user as any)?.wallet_address || (user as any)?.walletAddress || session.walletAddress;
+  const hasWallet = !!walletAddress;
+  const isLoggedIn = !!user;
 
   const handleWalletConnect = async (type: WalletType) => {
     // Check if we're in browser environment
@@ -37,11 +40,11 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
     }
 
     if (!isLoggedIn) {
-      toast.error("You must be logged in with email first.");
+      toast.error("You must be logged in first.");
       return;
     }
 
-    if (!session.email) {
+    if (!user?.email) {
       toast.error("Email information missing. Please log in again.");
       return;
     }
@@ -50,7 +53,10 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
     try {
       console.log("Attempting to connect Phantom wallet...");
       await connectWallet("phantom");
-      toast.success("Connected to Phantom wallet");
+      
+      // ✅ Wait a moment for AuthContext to refresh
+      console.log("✅ Wallet connected - waiting for UI update...");
+      await new Promise(resolve => setTimeout(resolve, 500));
       onClose();
     } catch (error) {
       console.error("Phantom wallet connection failed:", error);
@@ -123,13 +129,13 @@ export const WalletModal = ({ isOpen, onClose }: WalletModalProps) => {
               <div className="flex justify-between items-center">
                 <span className="text-gray-400">Wallet Type</span>
                 <span className="text-white font-medium">
-                  {getWalletName(session.walletType)}
+                  {getWalletName(session.walletType || (user as any)?.wallet_type as WalletType)}
                 </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-400">Address</span>
                 <span className="text-blue-400 font-mono">
-                  {shortenAddress(session.walletAddress || "")}
+                  {shortenAddress(walletAddress || "")}
                 </span>
               </div>
             </div>

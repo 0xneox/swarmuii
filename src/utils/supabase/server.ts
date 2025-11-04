@@ -1,55 +1,32 @@
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
-import { cookies } from "next/headers";
+/**
+ * DEPRECATED: Supabase client stub for old routes
+ * 
+ * This is a compatibility layer for old MVP code.
+ * DO NOT USE THIS - Use the Express backend API instead!
+ * 
+ * Migration guide:
+ * - Use services from @/lib/api instead
+ * - All auth/data operations go through Express backend
+ */
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error(
-    'Missing Supabase environment variables. Please check your .env.local file and ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set.'
-  );
-}
-
-export const createClient = async () => {
-  const cookieStore = await cookies();
+export async function createClient() {
+  console.warn('⚠️ WARNING: Using deprecated Supabase stub. Migrate to new API services in @/lib/api');
   
-  return createServerClient(
-    supabaseUrl!,
-    supabaseKey!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          try {
-            // Enhanced cookie options for Netlify PKCE compatibility
-            const enhancedOptions = {
-              ...options,
-              httpOnly: false, // Allow client-side access for PKCE flow
-              secure: process.env.NODE_ENV === 'production',
-              sameSite: 'lax' as const, // More permissive for OAuth callbacks
-              path: '/',
-            };
-            cookieStore.set(name, value, enhancedOptions);
-          } catch (error) {
-            console.warn('Failed to set cookie in server component:', error);
-            // The `set` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
-          }
-        },
-        remove(name: string, options: CookieOptions) {
-          try {
-            cookieStore.set(name, '', {
-              ...options,
-              maxAge: 0,
-            });
-          } catch (error) {
-            console.warn('Failed to remove cookie in server component:', error);
-          }
-        },
+  // Return a minimal mock to prevent crashes
+  return {
+    auth: {
+      exchangeCodeForSession: async () => {
+        throw new Error('Supabase auth deprecated. Use Express backend at @/lib/api/auth');
       },
+      getSession: async () => ({ data: { session: null }, error: null }),
+      getUser: async () => ({ data: { user: null }, error: null }),
     },
-  );
-};
+    from: () => ({
+      select: () => ({ data: null, error: new Error('Supabase queries deprecated. Use Express backend') }),
+      insert: () => ({ data: null, error: new Error('Supabase queries deprecated. Use Express backend') }),
+      update: () => ({ data: null, error: new Error('Supabase queries deprecated. Use Express backend') }),
+      upsert: () => ({ data: null, error: new Error('Supabase queries deprecated. Use Express backend') }),
+      delete: () => ({ data: null, error: new Error('Supabase queries deprecated. Use Express backend') }),
+    }),
+  };
+}

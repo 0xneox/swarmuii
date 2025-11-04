@@ -1,6 +1,6 @@
-import { useAuth } from "@/contexts/AuthContext";
-import { createClient } from "@/utils/supabase/client";
-import { validateSession, isSessionValid } from "@/lib/sessionUtils";
+import { useState, useEffect } from 'react';
+import { authService } from '@/lib/api/auth';
+import { useAuth } from '@/contexts/AuthContext';
 
 export type WalletType = "phantom" | "metamask";
 
@@ -14,97 +14,100 @@ export interface SessionData {
 }
 
 export const useSession = () => {
-  const { user, profile, updateProfile, session } = useAuth();
-  const supabase = createClient();
+  const { refreshUser } = useAuth(); // Get refresh function from AuthContext
+  
+  const [sessionData, setSessionData] = useState<SessionData>({
+    userId: null,
+    email: null,
+    walletAddress: null,
+    walletType: null,
+    isAuthenticated: false,
+    sessionValid: false,
+  });
 
-  // Map auth context to session format with validation
-  const sessionData: SessionData = {
-    userId: user?.id || null,
-    email: user?.email || null,
-    walletAddress: profile?.wallet_address || null,
-    walletType: profile?.wallet_type as WalletType || null,
-    isAuthenticated: !!user,
-    sessionValid: isSessionValid(session),
-  };
+  // Load user wallet data from stored user (only once on mount)
+  useEffect(() => {
+    const user = authService.getUser();
+    if (user) {
+      console.log('🔍 useSession Loading User:', user);
+      setSessionData({
+        userId: user.id,
+        email: user.email,
+        walletAddress: user.wallet_address || null,
+        walletType: (user.wallet_type as WalletType) || (user.wallet_address ? 'phantom' : null),
+        isAuthenticated: true,
+        sessionValid: true,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
 
   const connectWallet = async (walletType: WalletType) => {
-    // Validate session before proceeding
-    const sessionValidation = await validateSession();
-    if (!sessionValidation.isValid) {
-      throw new Error("Invalid session. Please log in again.");
-    }
-
-    if (!user) {
-      throw new Error("User must be authenticated to connect wallet");
-    }
-
-    // Check if we're in browser environment
-    if (typeof window === "undefined") {
-      throw new Error("Wallet connection is only available in browser environment");
-    }
-
     try {
-      let walletAddress: string | null = null;
-
-      if (walletType === "phantom") {
-        // Check if Phantom wallet is installed
-        const phantom = (window as any).phantom?.solana;
-        if (!phantom) {
-          throw new Error("Phantom wallet not installed. Please install it from phantom.app");
+      // Check if Phantom is installed
+      if (walletType === 'phantom') {
+        const { solana } = window as any;
+        
+        if (!solana || !solana.isPhantom) {
+          throw new Error('Phantom wallet is not installed. Please install it from phantom.app');
         }
 
-        // Connect to Phantom wallet
-        const response = await phantom.connect();
-        walletAddress = response.publicKey.toString();
-      } else {
-        throw new Error("Failed to get wallet address");
+        // Connect to Phantom
+        const response = await solana.connect();
+        const walletAddress = response.publicKey.toString();
+
+        // Update profile with wallet address via backend
+        await authService.updateProfile({
+          wallet_address: walletAddress,
+          wallet_type: walletType
+        });
+
+        // 🔥 CRITICAL: Refresh user data in AuthContext so Header shows connected state
+        await refreshUser();
+
+        // Update local session
+        setSessionData(prev => ({
+          ...prev,
+          walletAddress,
+          walletType,
+        }));
+
+        return walletAddress;
       }
-
-      if (!walletAddress) {
-        throw new Error("Failed to get wallet address");
-      }
-
-      // Update profile with wallet information
-      await updateProfile({
-        wallet_address: walletAddress,
-        wallet_type: walletType,
-      });
-
-      // Wallet connected
-      return walletAddress;
+      
+      throw new Error('Unsupported wallet type');
     } catch (error) {
-      // Wallet connection failed
+      console.error('Wallet connection error:', error);
       throw error;
     }
   };
 
   const disconnectWallet = async () => {
-    // Validate session before proceeding
-    const sessionValidation = await validateSession();
-    if (!sessionValidation.isValid) {
-      throw new Error("Invalid session. Please log in again.");
-    }
-
-    if (!user) {
-      throw new Error("User must be authenticated to disconnect wallet");
-    }
-
     try {
-      // Update profile to remove wallet information
-      await updateProfile({
-        wallet_address: null,
-        wallet_type: null,
+      // Update profile to remove wallet address
+      await authService.updateProfile({
+        wallet_address: '',
+        wallet_type: undefined
       });
 
-      // Wallet disconnected
+      // 🔥 CRITICAL: Refresh user data in AuthContext so Header shows disconnected state
+      await refreshUser();
+
+      // Update local session
+      setSessionData(prev => ({
+        ...prev,
+        walletAddress: null,
+        walletType: null,
+      }));
     } catch (error) {
-      // Wallet disconnection failed
+      console.error('Wallet disconnection error:', error);
       throw error;
     }
   };
 
   const validateCurrentSession = async () => {
-    return await validateSession();
+    const isAuthenticated = authService.isAuthenticated();
+    return { isValid: isAuthenticated, needsRefresh: false };
   };
 
   return {

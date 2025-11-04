@@ -3,7 +3,7 @@
 import { Suspense, useEffect } from "react";
 import { GlobalStatistics } from "@/components/GlobalStatistics";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { AuthGuard } from "@/components/AuthGuard";
+// TODO: Removed AuthGuard - no longer needed
 import { usePageAnalytics } from "@/hooks/useAnalytics";
 
 export default function GlobalStatisticsPage() {
@@ -15,12 +15,10 @@ export default function GlobalStatisticsPage() {
   }, [trackEvent]);
 
   return (
-    <AuthGuard>
-      <div className="min-h-screen ">
-        <Suspense fallback={<LoadingSpinner />}>
-          <GlobalStatistics />
-        </Suspense>
-      </div>
-    </AuthGuard>
+    <div className="min-h-screen">
+      <Suspense fallback={<LoadingSpinner />}>
+        <GlobalStatistics />
+      </Suspense>
+    </div>
   );
 }

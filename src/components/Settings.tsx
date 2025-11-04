@@ -10,6 +10,7 @@ import {
   AlertCircle,
   RefreshCw,
   ChevronDown,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +21,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { createClient } from "@/utils/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+// TODO: Replace with new database client
 
 // Mock translation function
 const useTranslation = () => {
@@ -186,6 +188,7 @@ const DeleteConfirmModal = ({
 };
 
 const Settings: React.FC = () => {
+  const { user } = useAuth();
   const [language, setLanguage] = useState("en");
   const [currency, setCurrency] = useState("usd");
   const [email, setEmail] = useState("");
@@ -206,7 +209,8 @@ const Settings: React.FC = () => {
   const [otpEmail, setOtpEmail] = useState("");
 
   const { t, i18n } = useTranslation();
-  const supabase = createClient();
+  // TODO: Replace with new database client
+  // const supabase = createClient();
 
   useEffect(() => {
     setLanguage(i18n.language);
@@ -234,10 +238,10 @@ const Settings: React.FC = () => {
   useEffect(() => {
     const fetchUserEmail = async () => {
       try {
-        const {
-          data: { user },
-          error,
-        } = await supabase.auth.getUser();
+        // TODO: Replace with Express.js backend API
+        console.log('User fetch disabled - implement Express.js backend');
+        const user = null;
+        const error = new Error('Backend disabled');
 
         if (error) {
           console.error("Error fetching user:", error);
@@ -259,7 +263,7 @@ const Settings: React.FC = () => {
     };
 
     fetchUserEmail();
-  }, [supabase]);
+  }, []); // TODO: Remove supabase dependency
 
   const languages = [
     { code: "en", name: "English" },
@@ -319,9 +323,9 @@ const Settings: React.FC = () => {
       setIsResetPasswordLoading(true);
 
       // Send OTP using Supabase's resetPasswordForEmail with OTP template
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: undefined, // No redirect needed for OTP
-      });
+      // TODO: Replace with Express.js backend API
+      console.log('Password reset disabled - implement Express.js backend');
+      const error = new Error('Backend disabled');
 
       if (error) {
         console.error("OTP send error:", error);
@@ -374,11 +378,9 @@ const Settings: React.FC = () => {
       setIsVerifyingOtp(true);
 
       // Verify OTP using Supabase's verifyOtp method
-      const { error } = await supabase.auth.verifyOtp({
-        email,
-        token: otp,
-        type: 'recovery'
-      });
+      // TODO: Replace with Express.js backend API
+      console.log('OTP verification disabled - implement Express.js backend');
+      const error = new Error('Backend disabled');
 
       if (error) {
         console.error("OTP verification error:", error);
@@ -432,9 +434,9 @@ const Settings: React.FC = () => {
       setIsUpdatingPassword(true);
 
       // Update password using Supabase
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword
-      });
+      // TODO: Replace with Express.js backend API
+      console.log('Password update disabled - implement Express.js backend');
+      const error = new Error('Backend disabled');
 
       if (error) {
         console.error("Password update error:", error);
@@ -486,9 +488,9 @@ const Settings: React.FC = () => {
     try {
       setIsDeleteAccountLoading(true);
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      // TODO: Replace with Express.js backend API
+      console.log('User fetch disabled - implement Express.js backend');
+      const user = null;
 
       if (!user?.id) {
         toast.error("User not found");
@@ -511,7 +513,8 @@ const Settings: React.FC = () => {
 
       toast.success("Account deleted successfully");
       localStorage.clear();
-      await supabase.auth.signOut();
+      // TODO: Replace with Express.js backend API
+      console.log('Sign out disabled - implement Express.js backend');
       window.location.href = "/";
     } catch (error: unknown) {
       console.error("Delete account error:", error);
@@ -523,6 +526,53 @@ const Settings: React.FC = () => {
       setShowDeleteConfirm(false);
     }
   };
+
+  // Show authentication required UI if user is not logged in
+  if (!user) {
+    return (
+      <div className="flex flex-col stat-card">
+        <div className="flex justify-between items-center mb-8">
+          <h2 className="text-xl">Settings</h2>
+        </div>
+
+        <div className="flex flex-col items-center justify-center h-[400px] p-8 bg-[#161628] rounded-lg">
+          <div className="w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-blue-500/10">
+            <Lock className="w-8 h-8 text-blue-400" />
+          </div>
+          <h3 className="text-xl font-semibold text-blue-400 mb-2">
+            Authentication Required
+          </h3>
+          <p className="text-slate-400 text-center mb-6">
+            Please sign in to access this feature and view your personalized data.
+          </p>
+          <Button 
+            className="gradient-button px-6 py-2 rounded-full"
+            onClick={() => {
+              // Trigger auth modal - you can customize this
+              const signInButton = document.querySelector('[data-auth-button]') as HTMLElement;
+              if (signInButton) signInButton.click();
+            }}
+          >
+            <svg
+              className="w-5 h-5 mr-2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+              ></path>
+            </svg>
+            Sign In
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoadingUser) {
     return (

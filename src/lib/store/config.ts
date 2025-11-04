@@ -81,14 +81,40 @@ export const TASK_CONFIG = {
   //   }
   // },
 
-  // Task generation settings - OPTIMIZED FOR MEMORY & API CALLS
+  // ✅ PLAN-BASED Task generation settings
   GENERATION: {
-    MIN_TASKS: 1,
-    MAX_TASKS: 3, // Reduced from 5 to 3
-    GENERATION_INTERVAL: 60000, // Increased to 60 seconds (was 30)
-    PROCESSING_INTERVAL: 30000,  // CRITICAL FIX: 30 seconds (was 5s) - Reduces API calls by 6x
-    MAX_CONCURRENT_PROCESSING: 1, // Max tasks processing at once (only 1 task)
-    PENDING_QUEUE_SIZE: 2 // Reduced from 4 to 2
+    free: {
+      MIN_TASKS: 1,
+      MAX_TASKS: 2,
+      GENERATION_INTERVAL: 60000, // 60s - slow for billing safety
+      PROCESSING_INTERVAL: 30000,  // 30s - SLOW (prevents $15k bill)
+      MAX_CONCURRENT_PROCESSING: 1, // Only 1 task at a time
+      PENDING_QUEUE_SIZE: 2
+    },
+    basic: {
+      MIN_TASKS: 2,
+      MAX_TASKS: 4,
+      GENERATION_INTERVAL: 30000, // 30s - faster
+      PROCESSING_INTERVAL: 8000,  // 8s - balanced
+      MAX_CONCURRENT_PROCESSING: 3, // 3 concurrent tasks
+      PENDING_QUEUE_SIZE: 4
+    },
+    ultimate: {
+      MIN_TASKS: 3,
+      MAX_TASKS: 5,
+      GENERATION_INTERVAL: 20000, // 20s - fast
+      PROCESSING_INTERVAL: 5000,  // 5s - FAST
+      MAX_CONCURRENT_PROCESSING: 5, // 5 concurrent tasks
+      PENDING_QUEUE_SIZE: 5
+    },
+    enterprise: {
+      MIN_TASKS: 3,
+      MAX_TASKS: 6,
+      GENERATION_INTERVAL: 15000, // 15s - very fast
+      PROCESSING_INTERVAL: 3000,  // 3s - VERY FAST
+      MAX_CONCURRENT_PROCESSING: 5, // 5 concurrent tasks
+      PENDING_QUEUE_SIZE: 6
+    }
   }
 };
 

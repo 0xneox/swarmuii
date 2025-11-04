@@ -32,35 +32,13 @@ const loadTaskState = (): TaskPipelineState => {
     if (saved) {
       const parsed = JSON.parse(saved);
       
-      // Recalculate stats from tasks
-      const stats = {
-        completed: 0,
-        processing: 0,
-        pending: 0,
-        failed: 0,
+      // ✅ CRITICAL FIX: Clear all tasks on load
+      // Tasks should only exist when node is actively running
+      // Don't restore old tasks from previous session
+      return {
+        ...initialState,
+        completedTasksForStats: parsed.completedTasksForStats || initialState.completedTasksForStats,
       };
-      
-      parsed.tasks.forEach((task: ProxyTask) => {
-        stats[task.status]++;
-      });
-      
-      const loadedState = {
-        ...parsed,
-        stats,
-        // Ensure completedTasksForStats exists
-        completedTasksForStats: parsed.completedTasksForStats || {
-          three_d: 0,
-          video: 0,
-          text: 0,
-          image: 0,
-        }
-      };
-      
-      if (loadedState.completedTasksForStats && Object.values(loadedState.completedTasksForStats).some((count: unknown) => typeof count === 'number' && count > 0)) {
-        logger.log('Loaded completed tasks from localStorage:', loadedState.completedTasksForStats);
-      }
-      
-      return loadedState;
     }
   } catch (error) {
     logger.error('Failed to load task state', error);
@@ -87,16 +65,24 @@ const taskSlice = createSlice({
     generateTasks: (state, action: PayloadAction<{ nodeId: string; hardwareTier: string }>) => {
       const { nodeId, hardwareTier } = action.payload;
       
-      // Don't generate if already at max pending
-      if (state.stats.pending >= TASK_CONFIG.GENERATION.PENDING_QUEUE_SIZE) {
+      // ✅ PLAN-BASED: Use free tier config by default (engine will handle plan-specific logic)
+      const config = TASK_CONFIG.GENERATION.free;
+      
+      // Check if we should generate more tasks
+      const currentPendingCount = state.tasks.filter(task => task.status === 'pending').length;
+      if (currentPendingCount >= config.PENDING_QUEUE_SIZE) {
+        logger.log(`Skipping task generation - queue full (${currentPendingCount} pending)`);
         return;
       }
       
       state.isGenerating = true;
       
-      // Generate 2-5 tasks
-      const taskCount = Math.floor(Math.random() * (TASK_CONFIG.GENERATION.MAX_TASKS - TASK_CONFIG.GENERATION.MIN_TASKS + 1)) + TASK_CONFIG.GENERATION.MIN_TASKS;
-      const tasksToGenerate = Math.min(taskCount, TASK_CONFIG.GENERATION.PENDING_QUEUE_SIZE - state.stats.pending);
+      // Calculate how many tasks to generate
+      // Ensure minimum tasks, but don't exceed max or fill the queue
+      const tasksToGenerate = Math.max(
+        config.MIN_TASKS,
+        Math.min(config.MAX_TASKS, config.PENDING_QUEUE_SIZE - currentPendingCount)
+      );
       
       const taskTypes: ('image' | 'text' | 'three_d' | 'video')[] = ['image', 'text', 'three_d', 'video'];
       
@@ -149,8 +135,11 @@ const taskSlice = createSlice({
       const pendingTasks = state.tasks.filter(task => task.status === 'pending');
       const processingTasks = state.tasks.filter(task => task.status === 'processing');
       
+      // ✅ PLAN-BASED: Get config from free tier by default (will be overridden by engine)
+      const config = TASK_CONFIG.GENERATION.free;
+      
       const canProcess = Math.min(
-        TASK_CONFIG.GENERATION.MAX_CONCURRENT_PROCESSING - processingTasks.length,
+        config.MAX_CONCURRENT_PROCESSING - processingTasks.length,
         pendingTasks.length
       );
       
@@ -262,6 +251,22 @@ const taskSlice = createSlice({
       logger.log('Completed tasks reset after successful server update. Previous:', previousTasks);
     },
     
+    // ✅ FIXED: Add action to mark task as failed
+    markTaskAsFailed: (state, action: PayloadAction<string>) => {
+      const taskId = action.payload;
+      const task = state.tasks.find(t => t.id === taskId);
+      
+      if (task && task.status === 'processing') {
+        task.status = 'failed';
+        task.updated_at = new Date().toISOString();
+        state.stats.processing--;
+        state.stats.failed++;
+        
+        logger.log(`Task ${taskId} marked as failed`);
+        saveTaskState(state);
+      }
+    },
+    
     resetTasks: (state) => {
       Object.assign(state, initialState);
       if (typeof window !== 'undefined') {
@@ -283,6 +288,7 @@ export const {
   updateProcessingTasks,
   clearCompletedTasks,
   clearCompletedTasksOnNodeStop,
+  markTaskAsFailed,
   resetTasks, 
   setAutoMode,
   resetCompletedTasksForStats

@@ -24,6 +24,8 @@ import {
 } from "lucide-react";
 import { FaFingerprint } from "react-icons/fa";
 import { useAuth } from "@/contexts/AuthContext";
+import { authService } from "@/lib/api";
+import { toast } from "sonner";
 
 interface ProfileEditModalProps {
   isOpen: boolean;
@@ -34,7 +36,19 @@ export function ProfileEditModal({
   isOpen,
   onClose,
 }: ProfileEditModalProps) {
-  const { user, profile, updateProfile } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const profile = user;
+
+  const updateProfile = async (updates: any) => {
+    try {
+      await authService.updateProfile(updates);
+      await refreshUser();
+      toast.success('Profile updated successfully');
+    } catch (error) {
+      toast.error('Failed to update profile');
+    }
+  };
+
   const [username, setUsername] = useState("");
   const [copySuccess, setCopySuccess] = useState(false);
   const [manualWalletAddress, setManualWalletAddress] = useState("");
@@ -46,17 +60,19 @@ export function ProfileEditModal({
 
   // Update username and wallet state when profile changes
   useEffect(() => {
-    if (profile?.user_name) {
-      setUsername(profile.user_name);
+    if (profile?.username) {
+      setUsername(profile.username);
     } else if (user?.email) {
       setUsername(user.email.split('@')[0]);
     }
 
-    if (profile?.wallet_address) {
+    // Load wallet from user profile
+    if (user?.wallet_address) {
+      setManualWalletAddress(user.wallet_address);
+      console.log('📍 Wallet loaded from profile:', user.wallet_address);
+    } else if (profile?.wallet_address) {
       setManualWalletAddress(profile.wallet_address);
-      if (profile.wallet_type) {
-        setWalletType(profile.wallet_type);
-      }
+      console.log('📍 Wallet loaded from profile:', profile.wallet_address);
     }
   }, [profile, user]);
 
@@ -93,25 +109,11 @@ export function ProfileEditModal({
     try {
       setLoading(true);
 
-      // Call the API endpoint to update the username
-      const response = await fetch('/api/profile/update', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ user_name: username }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to update username');
-      }
-
-      // Update local state via context
-      await updateProfile({
-        user_name: username
-      });
+      // Update via authService
+      await authService.updateProfile({ username: username });
+      
+      // Refresh user data
+      await refreshUser();
 
       showMessage("Username updated successfully", false);
     } catch (error) {
@@ -161,29 +163,13 @@ export function ProfileEditModal({
 
     setIsSavingWallet(true);
     try {
-      // Call the API endpoint to update wallet information
-      const response = await fetch('/api/profile/update', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          wallet_address: manualWalletAddress,
-          wallet_type: walletType
-        }),
+      // Update via authService
+      await authService.updateProfile({ 
+        wallet_address: manualWalletAddress 
       });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to save wallet address');
-      }
-
-      // Update local state via context
-      await updateProfile({
-        wallet_address: manualWalletAddress,
-        wallet_type: walletType
-      });
+      
+      // Refresh user data
+      await refreshUser();
 
       showMessage("Wallet address saved successfully", false);
     } catch (error) {
@@ -315,11 +301,26 @@ export function ProfileEditModal({
                 <div className="flex items-center gap-2 bg-slate-800 p-2 rounded border border-slate-700 text-gray-300">
                   <Calendar className="h-4 w-4 text-blue-400" />
                   <span>
-                    {profile?.joined_at
-                      ? new Date(profile.joined_at).toLocaleDateString()
-                      : user?.created_at
-                        ? new Date(user.created_at).toLocaleDateString()
-                        : "N/A"}
+                    {(() => {
+                      // Debug: Check all possible date fields
+                      console.log('🔍 Member Since Debug:', {
+                        created_at: user?.created_at,
+                        createdAt: (user as any)?.createdAt,
+                        joined_at: (user as any)?.joined_at,
+                        full_user: user
+                      });
+                      
+                      const dateStr = user?.created_at || (user as any)?.createdAt || (user as any)?.joined_at;
+                      
+                      if (dateStr) {
+                        return new Date(dateStr).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric'
+                        });
+                      }
+                      return "Not available - check backend response";
+                    })()}
                   </span>
                 </div>
               </div>
@@ -334,194 +335,121 @@ export function ProfileEditModal({
                 </Label>
                 <div className="flex items-center gap-2 bg-slate-800 p-2 rounded border border-slate-700 text-gray-300">
                   <CreditCard className="h-4 w-4 text-blue-400" />
-                  <span>{formatPlanName(profile?.plan || "free")}</span>
-                  {profile?.plan !== "free" && (
-                    <Badge className="ml-2 bg-green-800 text-green-200">
-                      Premium
+                  <div className="flex items-center gap-2">
+                    <Badge className={
+                      user?.plan === 'enterprise' ? 'bg-purple-700 text-white' :
+                      user?.plan === 'ultimate' ? 'bg-blue-700 text-white' :
+                      user?.plan === 'basic' ? 'bg-green-700 text-white' :
+                      'bg-slate-700 text-slate-200'
+                    }>
+                      {user?.plan ? user.plan.charAt(0).toUpperCase() + user.plan.slice(1) : 'Free'}
                     </Badge>
-                  )}
-                </div>
-                {(!profile?.plan || profile.plan === "free") && (
-                  <div className="mt-2">
-                    <Button
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          window.open("https://app.neurolov.ai/", "_blank");
-                        }
-                      }}
-                      size="sm"
-                      className="w-full mt-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-                    >
-                      <div className="flex flex-col items-center">
-                        <span>Upgrade Plan</span>
-                        <span className="text-xs font-thin text-white/70">
-                          connect to our app
-                        </span>
-                      </div>
-                    </Button>
+                    {user?.plan && user.plan !== 'free' && (
+                      <Badge className="bg-green-600 text-white text-xs">
+                        Premium
+                      </Badge>
+                    )}
                   </div>
-                )}
+                </div>
+                <div className="mt-2">
+                  <Button
+                    onClick={() => {
+                      if (typeof window !== 'undefined') {
+                        window.open("https://app.neurolov.ai/", "_blank");
+                      }
+                    }}
+                    size="sm"
+                    className="w-full mt-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                  >
+                    <div className="flex flex-col items-center">
+                      <span>Upgrade Plan</span>
+                      <span className="text-xs font-thin text-white/70">
+                        connect to our app
+                      </span>
+                    </div>
+                  </Button>
+                </div>
               </div>
             </div>
           </TabsContent>
 
           <TabsContent value="wallet" className="space-y-4 mt-4">
-            <div className="border border-slate-700 rounded-md p-4 bg-slate-800/30">
-              <div className="flex items-center gap-2 mb-4">
+            {/* Wallet Information Section - Matches Image 3 */}
+            <div className="border border-blue-900/30 rounded-lg p-6 bg-slate-900/50">
+              <div className="flex items-center gap-2 mb-6">
                 <Wallet className="h-5 w-5 text-blue-400" />
-                <h3 className="text-sm font-medium">Wallet Information</h3>
+                <h3 className="text-lg font-medium text-white">Wallet Information</h3>
               </div>
 
-              {profile?.wallet_address ? (
+              {((user as any)?.wallet_address || (user as any)?.walletAddress) ? (
                 <>
-                  <div className="mb-4">
-                    <Label className="text-sm text-gray-400 mb-1 block">
+                  {/* Wallet Type */}
+                  <div className="mb-6">
+                    <Label className="text-sm text-gray-400 mb-3 block">
                       Wallet Type
                     </Label>
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant="outline"
-                        className="bg-blue-900/20 text-blue-400 border-blue-800"
-                      >
-                        {profile.wallet_type
-                          ? profile.wallet_type.charAt(0).toUpperCase() + profile.wallet_type.slice(1)
-                          : "Ethereum"}
-                      </Badge>
-                    </div>
+                    <Badge className="bg-blue-600 text-white px-4 py-1.5 rounded-md text-sm font-medium">
+                      {(user as any)?.wallet_type ? (user as any).wallet_type.charAt(0).toUpperCase() + (user as any).wallet_type.slice(1) : 'Phantom'}
+                    </Badge>
                   </div>
 
-                  <div>
-                    <Label className="text-sm text-gray-400 mb-1 block">
+                  {/* Wallet Address */}
+                  <div className="mb-6">
+                    <Label className="text-sm text-gray-400 mb-3 block">
                       Wallet Address
                     </Label>
-                    <div className="flex items-center justify-between bg-slate-800 p-2 rounded border border-slate-700 text-gray-300">
-                      <span className="text-sm">
-                        {shortenWalletAddress(profile.wallet_address)}
+                    <div className="flex items-center gap-3 bg-slate-800/50 p-4 rounded-lg border border-slate-700/50">
+                      <span className="font-mono text-sm text-white flex-1">
+                        {(user as any)?.wallet_address || (user as any)?.walletAddress || "No address"}
                       </span>
                       <button
-                        onClick={() => copyToClipboard(profile.wallet_address || "")}
-                        className="text-gray-400 hover:text-white"
+                        onClick={() => copyToClipboard((user as any)?.wallet_address || (user as any)?.walletAddress || "")}
+                        className="text-gray-400 hover:text-white transition-colors p-2"
+                        title="Copy address"
                       >
                         {copySuccess ? (
-                          <CheckCircle className="h-4 w-4 text-green-500" />
+                          <CheckCircle className="h-5 w-5 text-green-400" />
                         ) : (
-                          <Copy className="h-4 w-4" />
+                          <Copy className="h-5 w-5" />
                         )}
                       </button>
                     </div>
                   </div>
 
-                  <div className="mt-4">
-                    <Button
-                      onClick={async () => {
-                        try {
-                          // Call the API endpoint to clear wallet information
-                          const response = await fetch('/api/profile/update', {
-                            method: 'PATCH',
-                            headers: {
-                              'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                              wallet_address: null,
-                              wallet_type: null
-                            }),
-                          });
-
-                          if (!response.ok) {
-                            const result = await response.json();
-                            throw new Error(result.error || 'Failed to disconnect wallet');
-                          }
-
-                          // Update local state
-                          setManualWalletAddress("");
-                          await updateProfile({ wallet_address: null, wallet_type: null });
-                          showMessage("Wallet disconnected successfully", false);
-                        } catch (error) {
-                          console.error("Error disconnecting wallet:", error);
-                          showMessage("Failed to disconnect wallet", true);
-                        }
-                      }}
-                      variant="outline"
-                      className="w-full bg-red-900/20 hover:bg-red-900/40 text-red-400 border-red-800/50"
-                    >
-                      Disconnect Wallet
-                    </Button>
-                  </div>
+                  {/* Disconnect Button - Red styled like Image 3 */}
+                  <Button
+                    onClick={handleSaveWallet}
+                    className="w-full bg-red-900/20 hover:bg-red-900/30 text-red-400 border border-red-700/50 h-12 text-base font-medium"
+                    variant="outline"
+                  >
+                    Disconnect Wallet
+                  </Button>
                 </>
               ) : (
-                <div className="space-y-4 py-4">
-                  <p className="text-gray-400 text-center">No wallet connected</p>
-
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="walletType" className="text-sm text-gray-400 mb-1 block">
-                        Wallet Type
-                      </Label>
-                      <div className="flex gap-2 mt-1">
-                        <Button
-                          type="button"
-                          variant={walletType === "ethereum" ? "default" : "outline"}
-                          className={walletType === "ethereum"
-                            ? "bg-blue-600 hover:bg-blue-700 flex-1"
-                            : "bg-slate-800 border-slate-700 hover:bg-slate-700 flex-1"
-                          }
-                          onClick={() => setWalletType("ethereum")}
-                        >
-                          Ethereum
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={walletType === "solana" ? "default" : "outline"}
-                          className={walletType === "solana"
-                            ? "bg-blue-600 hover:bg-blue-700 flex-1"
-                            : "bg-slate-800 border-slate-700 hover:bg-slate-700 flex-1"
-                          }
-                          onClick={() => setWalletType("solana")}
-                        >
-                          Solana
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="manualWalletAddress" className="text-sm text-gray-400 mb-1 block">
-                        Wallet Address
-                      </Label>
+                <>
+                  {/* No wallet connected - show input */}
+                  <div className="mb-4">
+                    <Label htmlFor="walletAddress" className="text-sm text-gray-400 mb-1 block">
+                      Wallet Address
+                    </Label>
+                    <div className="flex gap-2">
                       <Input
-                        id="manualWalletAddress"
-                        placeholder={walletType === "ethereum" ? "0x..." : "..."}
-                        className="bg-slate-800 border-slate-700 text-white"
+                        id="walletAddress"
                         value={manualWalletAddress}
                         onChange={(e) => setManualWalletAddress(e.target.value)}
+                        className="bg-slate-800 border-slate-700 focus:border-blue-600 text-white font-mono text-sm"
+                        placeholder="0x... or wallet address"
                       />
-                    </div>
-
-                    <Button
-                      variant="outline"
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                      onClick={handleSaveWallet}
-                      disabled={isSavingWallet}
-                    >
-                      {isSavingWallet ? "Saving..." : "Save Address"}
-                    </Button>
-                  </div>
-
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t border-slate-700" />
-                    </div>
-                    <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-slate-900 px-2 text-gray-400">Or</span>
+                      <Button
+                        onClick={handleSaveWallet}
+                        className="bg-blue-600 hover:bg-blue-700"
+                        disabled={isSavingWallet}
+                      >
+                        {isSavingWallet ? "Saving..." : "Save"}
+                      </Button>
                     </div>
                   </div>
-
-                  <Button
-                    onClick={() => showMessage("Wallet connection feature coming soon", true)}
-                    className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
-                  >
-                    Connect Wallet
-                  </Button>
-                </div>
+                </>
               )}
             </div>
           </TabsContent>

@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect } from "react";
 import { EarningsDashboard } from "@/components/EarningsDashboard";
-import { AuthGuard } from "@/components/AuthGuard";
+// TODO: Removed AuthGuard - no longer needed
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { usePageAnalytics } from "@/hooks/useAnalytics";
 
@@ -15,12 +15,8 @@ export default function EarningPage() {
   }, [trackEvent]);
 
   return (
-    <AuthGuard requireAuth={true}>
-      <div className="min-h-screen">
-        <Suspense fallback={<LoadingSpinner />}>
-          <EarningsDashboard />
-        </Suspense>
-      </div>
-    </AuthGuard>
+    <div className="min-h-screen">
+      <EarningsDashboard />
+    </div>
   );
 }

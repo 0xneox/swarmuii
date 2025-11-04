@@ -1,13 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+// TODO: Replace with new auth system
 import { AuthModal } from '@/components/auth/AuthModal';
 import { Button } from '@/components/ui/button';
 import { User, LogOut, LogIn } from 'lucide-react';
 
 export default function ExamplePage() {
-  const { user, profile, session, isLoading, logout } = useAuth();
+  // TODO: Replace with new auth system
+  const user = null;
+  const profile = null;
+  const session = null;
+  const isLoading = false;
+  const logout = async () => {};
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   if (isLoading) {

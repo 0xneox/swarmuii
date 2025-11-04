@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { earningsService } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { optimizedFetch } from "@/lib/apiOptimization";
+import { toast } from "@/lib/toast";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -32,15 +33,23 @@ import {
   Bar,
 } from "recharts";
 
-type TimeRange = "daily" | "weekly" | "monthly" | "all-time";
+type TimeRange = "daily" | "weekly" | "monthly" | "yearly";
 
 // Define interfaces for API data
 interface ChartDataPoint {
   date: string;
   earnings: number;
-  totalEarnings: number;
-  highlight: boolean;
+  totalEarnings?: number;
+  highlight?: boolean;
   timestamp?: number;
+  // Categorized earnings
+  task?: number;
+  referral?: number;
+  referral_tier1?: number;
+  referral_tier2?: number;
+  referral_tier3?: number;
+  daily_checkin?: number;
+  bonus?: number;
 }
 
 interface Transaction {
@@ -99,97 +108,91 @@ const EarningsDashboard = () => {
   const [isLoadingEarnings, setIsLoadingEarnings] = useState(true);
   const [isLoadingChart, setIsLoadingChart] = useState(true);
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(true);
+  const [unclaimedRewards, setUnclaimedRewards] = useState<number>(0);  // ✅ ADD STATE
 
-  // Get user and profile from auth context
-  const { user, profile } = useAuth();
+  // Use AuthContext for user data
+  const { user } = useAuth();
   const userId = user?.id;
-  const walletAddress = profile?.wallet_address || '';
+  const walletAddress = user?.wallet_address || '';
   const hasWallet = !!walletAddress;
 
-  // API functions
+  // API functions - Simplified to only use stats API
   const fetchEarningsData = async () => {
     if (!user?.id) return;
 
     try {
       setIsLoadingEarnings(true);
 
-      // Fetch total earnings
-      const earningsRes = await optimizedFetch("/api/earnings", {}, {
-        enableDeduplication: true,
-        enableCircuitBreaker: true,
-        enableRetry: true,
-        maxRetries: 2
-      });
-      const earningsData = await earningsRes.json();
-
-      // Fetch unclaimed balance (SP)
-      const unclaimedRes = await optimizedFetch("/api/unclaimed-rewards", {}, {
-        enableDeduplication: true,
-        enableCircuitBreaker: true,
-        enableRetry: true,
-        maxRetries: 2
-      });
-      const unclaimedData = await unclaimedRes.json();
-
+      // Use task stats API - it has all the data we need!
+      const stats = await earningsService.getTaskStats();
+      
+      console.log('📊 Stats API Response:', stats);
+      console.log('📊 Total Balance:', stats?.totalBalance);
+      console.log('📊 Unclaimed Reward:', stats?.unclaimedReward);
+      console.log('📊 Tasks Completed:', stats?.totalTasksCompleted);
+      
       setEarningsData({
-        totalEarnings: earningsData.totalEarnings || 0,
-        availableBalance: unclaimedData.unclaimed_reward || 0,
-        periodEarnings: 0, // Will be calculated from chart data
-        avgDaily: 0, // Will be calculated from chart data
+        totalEarnings: stats?.totalBalance ?? 0,  // Use totalBalance from stats
+        availableBalance: stats?.totalBalance ?? 0,
+        periodEarnings: stats?.todayEarnings ?? 0,
+        avgDaily: stats?.averageEarningsPerTask ?? 0,
       });
+      setUnclaimedRewards(stats?.unclaimedReward ?? 0);  // ✅ SET UNCLAIMED
+      setTaskCompleted(stats?.totalTasksCompleted ?? 0);
     } catch (error) {
-      console.error("Error fetching earnings data:", error);
+      console.error("Error fetching stats data:", error);
+      // Set default values on error
+      setEarningsData({
+        totalEarnings: 0,
+        availableBalance: 0,
+        periodEarnings: 0,
+        avgDaily: 0,
+      });
+      setTaskCompleted(0);
     } finally {
       setIsLoadingEarnings(false);
+      setIsLoadingTaskStats(false);
     }
   };
 
+  // ✅ NEW: Fetch categorized chart data
   const fetchChartData = async () => {
     if (!user?.id) return;
 
     try {
       setIsLoadingChart(true);
-      const res = await optimizedFetch(`/api/earnings/chart?range=${chartPeriod}`, {}, {
-        enableDeduplication: true,
-        enableCircuitBreaker: true,
-        enableRetry: true,
-        maxRetries: 2
-      });
-      const data = await res.json();
-
-      if (data.chartData) {
-        setChartData(data.chartData);
-        setChartSummary(data.summary);
-
-        // Update earnings data with period info
-        setEarningsData((prev) => ({
-          ...prev,
-          periodEarnings: data.summary.periodEarnings,
-          avgDaily: data.summary.avgDaily,
-        }));
-      }
+      const limit = chartPeriod === 'daily' ? 30 : chartPeriod === 'monthly' ? 12 : 3;
+      const data = await earningsService.getChartData(chartPeriod as 'daily' | 'monthly' | 'yearly', limit);
+      setChartData(data);
     } catch (error) {
       console.error("Error fetching chart data:", error);
+      setChartData([]);
     } finally {
       setIsLoadingChart(false);
     }
   };
+
+  // Chart function removed - using stats API instead
 
   const fetchTransactions = async () => {
     if (!user?.id) return;
 
     try {
       setIsLoadingTransactions(true);
-      const res = await optimizedFetch("/api/earnings/transactions?limit=10", {}, {
-        enableDeduplication: true,
-        enableCircuitBreaker: true,
-        enableRetry: true,
-        maxRetries: 2
-      });
-      const data = await res.json();
+      const data = await earningsService.getTransactions(10);
 
-      if (data.transactions) {
-        setTransactions(data.transactions);
+      if (data && Array.isArray(data)) {
+        // Convert API format to component format
+        const formattedTransactions: Transaction[] = data.map((tx: any) => ({
+          id: tx.id || '',
+          amount: tx.amount || 0,
+          created_at: tx.created_at || new Date().toISOString(),
+          earning_type: tx.type || tx.earning_type || 'reward',
+          transaction_hash: tx.hash || tx.transaction_hash || '',
+          totalAmount: tx.totalAmount || tx.amount || 0,
+        }));
+        
+        setTransactions(formattedTransactions);
       }
     } catch (error) {
       console.error("Error fetching transactions:", error);
@@ -201,28 +204,21 @@ const EarningsDashboard = () => {
   // CRITICAL FIX: Split effects to prevent unnecessary API calls
   useEffect(() => {
     if (user?.id) {
-      // Initialize earnings and transactions only once
-      const initializeData = async () => {
-        try {
-          await Promise.all([
-            fetchEarningsData(),
-            fetchTransactions(),
-          ]);
-        } catch (error) {
-          console.error("Error initializing earnings data:", error);
-        }
-      };
-      
-      initializeData();
+      fetchEarningsData(); // This now fetches both earnings and task stats
+      fetchStreakData();
+      fetchTransactions();
+      fetchChartData(); // ✅ NEW: Fetch chart data
     }
-  }, [user?.id]); // CRITICAL FIX: Only trigger on user change, not chartPeriod
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
-  // CRITICAL FIX: Separate effect for chart data to prevent double API calls
+  // ✅ NEW: Refetch chart when period changes
   useEffect(() => {
     if (user?.id) {
       fetchChartData();
     }
-  }, [user?.id, chartPeriod]); // CRITICAL FIX: Only chart data refetches on period change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartPeriod]);
 
   const handleTimeRangeChange = (value: string) => {
     setTimeRange(value as TimeRange);
@@ -233,51 +229,48 @@ const EarningsDashboard = () => {
   };
 
   const handleWithdraw = () => {
-    // Mock toast notification
-    alert("Withdrawals will be available after mainnet launch");
+    toast.info("Withdrawals will be available after mainnet launch");
   };
 
   const handleRefresh = () => {
     setLoading(true);
-    // Refetch task stats along with other data
+    // Refetch data
     if (userId) {
-      fetchTaskStats();
+      fetchEarningsData(); // This fetches both earnings and task stats
       fetchStreakData();
     }
     setTimeout(() => {
       setLoading(false);
-      alert("Earnings data refreshed");
+      toast.success("Earnings data refreshed");
     }, 1000);
   };
 
   const handleDailyCheckIn = async () => {
-    if (!streakData || !userId) return;
+    if (!userId) return;
 
     setCheckInLoading(true);
     try {
-      const response = await optimizedFetch("/api/daily-checkins", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }, {
-        enableDeduplication: false, // Don't deduplicate POST requests
-        enableCircuitBreaker: true,
-        enableRetry: true,
-        maxRetries: 2
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        // Refresh streak data and task stats
-        fetchStreakData();
-        fetchTaskStats();
-      } else {
-        const error = await response.json();
-        console.error("Check-in failed:", error.error || "Failed to check in");
-      }
+      const result = await earningsService.dailyCheckIn();
+      
+      // Show success message
+      toast.success(`Daily check-in successful! 🎉 Streak: ${result.streak} days | Reward: ${result.reward} SP claimed!`);
+      
+      // Refresh all data
+      await Promise.all([
+        fetchStreakData(),
+        fetchEarningsData(),
+        fetchTransactions()
+      ]);
     } catch (error) {
       console.error("Error during check-in:", error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to check in';
+      
+      // Handle 404 gracefully
+      if (errorMsg.includes('404')) {
+        toast.error('Daily check-in feature not available yet. Coming soon!');
+      } else {
+        toast.error(`Check-in failed: ${errorMsg}`);
+      }
     } finally {
       setCheckInLoading(false);
     }
@@ -299,75 +292,33 @@ const EarningsDashboard = () => {
     return new Date(dateString).toLocaleDateString();
   };
 
-  // Fetch task completed count from API
-  const fetchTaskStats = async () => {
-    try {
-      setIsLoadingTaskStats(true);
-      const response = await optimizedFetch("/api/user-task-stats", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }, {
-        enableDeduplication: true,
-        enableCircuitBreaker: true,
-        enableRetry: true,
-        maxRetries: 2
-      });
-
-      if (response.ok) {
-        const { taskCompleted: completedCount } = await response.json();
-        setTaskCompleted(completedCount || 0);
-      } else {
-        console.error("Failed to fetch task stats:", response.status);
-        setTaskCompleted(0);
-      }
-    } catch (error) {
-      console.error("Error fetching task stats:", error);
-      setTaskCompleted(0);
-    } finally {
-      setIsLoadingTaskStats(false);
-    }
-  };
+  // Task stats now fetched in fetchEarningsData()
 
   // Fetch streak data from API
   const fetchStreakData = async () => {
     try {
       setIsLoadingStreak(true);
-      const response = await optimizedFetch("/api/daily-checkins", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }, {
-        enableDeduplication: true,
-        enableCircuitBreaker: true,
-        enableRetry: true,
-        maxRetries: 2
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setStreakData(data);
-      } else {
-        console.error("Failed to fetch streak data:", response.status);
-        setStreakData(null);
-      }
+      const data = await earningsService.getStreakData();
+      console.log('🔍 Streak data from backend:', data);
+      console.log('🔍 canCheckIn value:', data?.canCheckIn);
+      setStreakData(data);
     } catch (error) {
+      // ✅ FIX: Set default streak data to enable check-in button
       console.error("Error fetching streak data:", error);
-      setStreakData(null);
+      setStreakData({
+        currentStreak: 0,
+        lastCheckinDate: null,
+        totalCompletedCycles: 0,
+        canCheckIn: true,  // ✅ Enable check-in by default
+        nextReward: 10,
+        hasCheckedInToday: false
+      });
     } finally {
       setIsLoadingStreak(false);
     }
   };
 
-  // Load task stats and streak data on component mount and when userId changes
-  useEffect(() => {
-    if (userId) {
-      fetchTaskStats();
-      fetchStreakData();
-    }
-  }, [userId]);
+  // Removed duplicate effect - data loaded in main useEffect above
 
   if (!userId) {
     return (
@@ -440,7 +391,7 @@ const EarningsDashboard = () => {
                     Loading...
                   </div>
                 ) : (
-                  earningsData.availableBalance.toLocaleString(undefined, {
+                  unclaimedRewards.toLocaleString(undefined, {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })
@@ -550,58 +501,120 @@ const EarningsDashboard = () => {
               <h3 className="text-lg font-medium">Earning History</h3>
             </div>
             <Select value={chartPeriod} onValueChange={handleChartPeriodChange}>
-
+              <SelectTrigger className="w-[140px] bg-[#161628] border-[#1a1a36]">
+                <SelectValue placeholder="Select period" />
+              </SelectTrigger>
+              <SelectContent className="bg-[#161628] border-[#1a1a36]">
+                <SelectItem value="daily">Daily</SelectItem>
+                <SelectItem value="monthly">Monthly</SelectItem>
+                <SelectItem value="yearly">Yearly</SelectItem>
+              </SelectContent>
             </Select>
           </div>
 
-          <div className="h-[250px] w-full relative z-10">
+          <div className="h-[300px] w-full relative z-10">
             {isLoadingChart ? (
               <div className="flex items-center justify-center h-full">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
               </div>
             ) : chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1a1a36" />
-                  <XAxis
-                    dataKey="date"
-                    stroke="#515194"
-                    fontSize={12}
-                    tickFormatter={(value) => {
-                      const date = new Date(value);
-                      return `${date.getMonth() + 1}/${date.getDate()}`;
-                    }}
-                  />
-                  <YAxis
-                    stroke="#515194"
-                    fontSize={12}
-                    tickFormatter={(value) => `${value} SP`}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#161628',
-                      border: '1px solid #1a1a36',
-                      borderRadius: '8px',
-                      color: '#fff'
-                    }}
-                    formatter={(value: any) => [`${Number(value).toFixed(2)} SP`, 'Earnings']}
-                    labelFormatter={(label) => {
-                      const date = new Date(label);
-                      return date.toLocaleDateString();
-                    }}
-                  />
-                  <Bar
-                    dataKey="earnings"
-                    fill="#3b82f6"
-                    radius={[2, 2, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              <>
+                {/* Legend */}
+                <div className="flex flex-wrap gap-4 mb-4 justify-center text-xs">
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#60a5fa'}} />
+                    <span className="text-slate-300">Tasks</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#3b82f6'}} />
+                    <span className="text-slate-300">Referrals</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#2563eb'}} />
+                    <span className="text-slate-300">Tier 1 (10%)</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#1d4ed8'}} />
+                    <span className="text-slate-300">Tier 2 (5%)</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#1e40af'}} />
+                    <span className="text-slate-300">Tier 3 (2.5%)</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#93c5fd'}} />
+                    <span className="text-slate-300">Daily Check-in</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#dbeafe'}} />
+                    <span className="text-slate-300">Bonus</span>
+                  </div>
+                </div>
+                
+                <ResponsiveContainer width="100%" height="85%">
+                  <BarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1a1a36" />
+                    <XAxis
+                      dataKey="date"
+                      stroke="#515194"
+                      fontSize={12}
+                      tickFormatter={(value) => {
+                        const date = new Date(value);
+                        if (chartPeriod === 'daily') {
+                          return `${date.getMonth() + 1}/${date.getDate()}`;
+                        } else if (chartPeriod === 'monthly') {
+                          return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                        } else {
+                          return date.getFullYear().toString();
+                        }
+                      }}
+                    />
+                    <YAxis
+                      stroke="#515194"
+                      fontSize={12}
+                      tickFormatter={(value) => `${value}`}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#161628',
+                        border: '1px solid #1a1a36',
+                        borderRadius: '8px',
+                        color: '#fff'
+                      }}
+                      formatter={(value: any, name: string) => {
+                        const labels: Record<string, string> = {
+                          task: 'Tasks',
+                          referral: 'Referrals',
+                          referral_tier1: 'Tier 1 Royalty (10%)',
+                          referral_tier2: 'Tier 2 Royalty (5%)',
+                          referral_tier3: 'Tier 3 Royalty (2.5%)',
+                          daily_checkin: 'Daily Check-in',
+                          bonus: 'Bonus'
+                        };
+                        return [`${Number(value).toFixed(2)} SP`, labels[name] || name];
+                      }}
+                      labelFormatter={(label) => {
+                        const date = new Date(label);
+                        return date.toLocaleDateString();
+                      }}
+                    />
+                    {/* Stacked bars with different shades of blue */}
+                    <Bar dataKey="task" stackId="a" fill="#60a5fa" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="referral" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="referral_tier1" stackId="a" fill="#2563eb" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="referral_tier2" stackId="a" fill="#1d4ed8" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="referral_tier3" stackId="a" fill="#1e40af" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="daily_checkin" stackId="a" fill="#93c5fd" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="bonus" stackId="a" fill="#dbeafe" radius={[2, 2, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </>
             ) : (
               <div className="text-slate-400 text-center h-full flex items-center justify-center">
                 <div>
                   <TrendingUp className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <p>Earning history coming soon...</p>
+                  <p>No earnings data available yet</p>
+                  <p className="text-xs mt-2">Start completing tasks to see your earnings history!</p>
                 </div>
               </div>
             )}
@@ -804,9 +817,11 @@ const EarningsDashboard = () => {
                         ? "Task completed"
                         : tx.earning_type === "referral"
                           ? "Referral reward"
-                          : tx.earning_type === "other"
+                          : tx.earning_type === "daily_checkin"
                             ? "Daily check-in"
-                            : "Other reward"}
+                            : tx.earning_type === "bonus"
+                              ? "Bonus reward"
+                              : "Other reward"}
                     </span>
                   </div>
 

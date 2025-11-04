@@ -1,10 +1,15 @@
 "use client";
 
-import { useAuth } from "@/contexts/AuthContext";
+// TODO: Replace with new auth system
 import { useEffect, useState } from "react";
 
 export function AuthDebugger() {
-  const { user, profile, session, isLoading, isLoggedIn } = useAuth();
+  // TODO: Replace with new auth system
+  const user = null;
+  const profile = null;
+  const session = null;
+  const isLoading = false;
+  const isLoggedIn = false;
   const [showDebugger, setShowDebugger] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
 

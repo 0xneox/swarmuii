@@ -9,21 +9,38 @@ class TaskProcessingEngine {
   private intervalId: NodeJS.Timeout | null = null;
   private dispatch: AppDispatch;
   private isRunning = false;
+  private currentPlan: 'free' | 'basic' | 'ultimate' | 'enterprise' = 'free';
 
   constructor(dispatch: AppDispatch) {
     this.dispatch = dispatch;
+  }
+
+  // ✅ Set user's subscription plan for rate limiting
+  setPlan(plan: string) {
+    const planLower = plan.toLowerCase();
+    if (planLower in TASK_CONFIG.GENERATION) {
+      this.currentPlan = planLower as 'free' | 'basic' | 'ultimate' | 'enterprise';
+      logger.log(`📋 Task engine plan set to: ${this.currentPlan}`);
+      
+      // Restart engine with new interval if running
+      if (this.isRunning) {
+        this.stop();
+        this.start();
+      }
+    }
   }
 
   start() {
     if (this.isRunning) return;
     
     this.isRunning = true;
-    logger.log('Task processing engine started');
+    const config = TASK_CONFIG.GENERATION[this.currentPlan];
+    logger.log(`Task processing engine started (${this.currentPlan} plan, ${config.PROCESSING_INTERVAL}ms interval)`);
     
-    // Main processing loop
+    // Main processing loop - interval based on subscription plan
     this.intervalId = setInterval(() => {
       this.processTaskCycle();
-    }, TASK_CONFIG.GENERATION.PROCESSING_INTERVAL);
+    }, config.PROCESSING_INTERVAL);
   }
 
   stop() {
@@ -53,9 +70,12 @@ class TaskProcessingEngine {
     this.dispatch(updateUptime());
 
     const hardwareTier = node.hardwareInfo.rewardTier;
+    const config = TASK_CONFIG.GENERATION[this.currentPlan];
 
     // 1. Generate new tasks if needed (auto mode and low pending count)
-    if (tasks.autoMode && tasks.stats.pending < 2 && !tasks.isGenerating) {
+    // ✅ PLAN-BASED: Use plan-specific pending queue size
+    const totalActiveTasks = tasks.stats.pending + tasks.stats.processing;
+    if (tasks.autoMode && totalActiveTasks < config.PENDING_QUEUE_SIZE && !tasks.isGenerating) {
       this.dispatch(generateTasks({ 
         nodeId: node.nodeId, 
         hardwareTier 
@@ -63,7 +83,8 @@ class TaskProcessingEngine {
     }
 
     // 2. Start processing pending tasks
-    if (tasks.stats.pending > 0 && tasks.stats.processing < TASK_CONFIG.GENERATION.MAX_CONCURRENT_PROCESSING) {
+    // ✅ PLAN-BASED: Use plan-specific concurrent limit
+    if (tasks.stats.pending > 0 && tasks.stats.processing < config.MAX_CONCURRENT_PROCESSING) {
       this.dispatch(startProcessingTasks(hardwareTier));
     }
 
@@ -96,8 +117,10 @@ class TaskProcessingEngine {
           try {
             await this.completeTask(task, hardwareTier);
           } catch (error) {
-            logger.error(`Error completing task: ${error}`);
-            // Continue with next task even if this one fails
+            // ✅ FIXED: Mark task as failed if backend call fails
+            logger.error(`❌ Task failed: ${error}`);
+            const { markTaskAsFailed } = await import('./slices/taskSlice');
+            this.dispatch(markTaskAsFailed(task.id));
           }
         }
       }
@@ -115,7 +138,8 @@ class TaskProcessingEngine {
   private async completeTask(task: ProxyTask, hardwareTier: 'webgpu' | 'wasm' | 'webgl' | 'cpu') {
     const baseReward = TASK_CONFIG.BASE_REWARDS[task.type];
     const multiplier = TASK_CONFIG.HARDWARE_MULTIPLIERS[hardwareTier];
-    const rewardAmount = Math.round(baseReward * multiplier * 100) / 100; // Round to 2 decimal places
+    // Backend expects INTEGER, not float - use Math.round() only
+    const rewardAmount = Math.round(baseReward * multiplier);
 
     // Create reward transaction
     const reward: RewardTransaction = {
@@ -130,30 +154,25 @@ class TaskProcessingEngine {
     };
 
     try {
-      // Call local API route that will proxy to Supabase edge function
-      const response = await fetch('/api/complete-task', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          increment_amount: rewardAmount,
-          task_id: task.id,
-          task_type: task.type,
-          hardware_tier: hardwareTier,
-          multiplier: multiplier
-        })
+      // Call Express backend using taskService
+      const { taskService } = await import('@/lib/api');
+      const result = await taskService.completeTask({
+        task_id: task.id,
+        task_type: task.type as 'text' | 'image' | 'video' | '3d',
+        reward_amount: rewardAmount,
       });
 
-      if (!response.ok) {
-        throw new Error(`Failed to record task completion: ${response.status}`);
-      }
-
-      logger.log(`Task completed and recorded in Supabase: ${task.type} - Reward: ${rewardAmount} SP (${multiplier}x multiplier)`);
-    } catch (error) {
-      // Fallback to local storage if API call fails
-      logger.error(`Failed to record task in Supabase, falling back to local storage: ${error}`);
+      logger.log(`✅ Task completed via backend: ${task.type} - Reward: ${rewardAmount} SP`);
+      
+      // ✅ FIXED: Only update Redux on API SUCCESS
       this.dispatch(addReward(reward));
+      
+      logger.log(`💰 Unclaimed rewards: ${result.total_unclaimed_reward} SP`);
+    } catch (error) {
+      // ✅ FIXED: Don't give rewards if backend fails
+      logger.error(`❌ Backend failed to record task: ${error}`);
+      // Task will be marked as failed by updateProcessingTasks
+      throw error; // Re-throw so calling code knows it failed
     }
   }
 

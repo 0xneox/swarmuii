@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import { useAuth } from './AuthContext';
+// TODO: Replace with new auth system
 
 interface SessionStatus {
   hasActiveNode: boolean;
@@ -30,7 +30,8 @@ export const useGlobalSession = () => {
 export const GlobalSessionProvider: React.FC<{ children: React.ReactNode }> = ({ 
   children 
 }) => {
-  const { user } = useAuth();
+  // TODO: Replace with new auth system
+  const user = null;
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>({
     hasActiveNode: false,
     activeDeviceId: null,

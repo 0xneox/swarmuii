@@ -30,12 +30,13 @@ import { selectCurrentUptime, selectNode } from "@/lib/store/slices/nodeSlice";
 import { selectSessionEarnings } from "@/lib/store/slices/earningsSlice";
 import { getTaskEngine } from "@/lib/store/taskEngine";
 import { formatUptimeShort, TASK_CONFIG } from "@/lib/store/config";
-import { useAuth } from "@/contexts/AuthContext";
 import { usePlan } from "@/contexts/PlanContext";
 import { trackTaskCompletion, trackEvent } from "@/lib/analytics";
+import { useAuth } from "@/contexts/AuthContext";
 
 export const TaskPipeline = () => {
-  const { user, isLoggedIn, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
+  const isLoggedIn = isAuthenticated;
   const { getMaxUptime, currentPlan } = usePlan();
   const dispatch = useAppDispatch();
   const node = useAppSelector(selectNode);
@@ -45,12 +46,136 @@ export const TaskPipeline = () => {
   const processingTasks = useAppSelector(selectProcessingTasks);
   const pendingTasks = useAppSelector(selectPendingTasks);
   const sessionEarnings = useAppSelector(selectSessionEarnings);
+  
+  // ✅ FIXED: Force re-render every second for smooth task timer
+  const [, setTick] = React.useState(0);
+  React.useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-  // Early return if not authenticated (extra safety)
+  // Early return if not authenticated
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[200px]">
         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  // Show disabled state when not logged in
+  if (!isAuthenticated || !user) {
+    return (
+      <div className="task-pipeline p-2.5 sm:p-6 rounded-2xl sm:rounded-3xl stat-card relative">
+        <div className="flex flex-row justify-between items-center gap-2 sm:gap-0 mb-3 sm:mb-6">
+          <div className="flex items-center gap-1 sm:gap-2">
+            <h2 className="text-sm sm:text-lg font-medium text-white/90">
+              Task Pipeline
+            </h2>
+            <InfoTooltip content="Monitor and manage AI task processing pipeline" />
+          </div>
+          <div className="flex items-center gap-1 sm:gap-2 order-1 sm:order-2">
+            <span className="text-[10px] sm:text-sm text-white/60">Auto</span>
+            <label className="relative inline-flex items-center cursor-not-allowed opacity-50">
+              <input
+                type="checkbox"
+                checked={false}
+                disabled
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-600 rounded-full"></div>
+            </label>
+          </div>
+        </div>
+
+        {/* Task Status Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-6">
+          <div className="rounded-xl overflow-hidden bg-[#1D1D33] relative">
+            <div className="p-2 sm:p-4 pb-1.5 sm:pb-3 flex flex-col items-center">
+              <img
+                src="/images/completed.png"
+                alt="Completed"
+                className="w-3.5 h-3.5 sm:w-5 sm:h-5 object-contain mb-0.5 sm:mb-2"
+              />
+              <span className="text-[10px] sm:text-sm text-white/60">
+                Completed
+              </span>
+              <span className="text-lg sm:text-2xl font-semibold text-white mt-0.5 sm:mt-1">
+                0
+              </span>
+            </div>
+            <div className="h-1.5 sm:h-2 w-full bg-[#0361DA]"></div>
+          </div>
+
+          <div className="rounded-xl overflow-hidden bg-[#1D1D33] relative">
+            <div className="p-2 sm:p-4 pb-1.5 sm:pb-3 flex flex-col items-center">
+              <img
+                src="/images/processing.png"
+                alt="Processing"
+                className="w-3.5 h-3.5 sm:w-5 sm:h-5 object-contain mb-0.5 sm:mb-2"
+              />
+              <span className="text-[10px] sm:text-sm text-white/60">
+                Processing
+              </span>
+              <span className="text-lg sm:text-2xl font-semibold text-white mt-0.5 sm:mt-1">
+                0
+              </span>
+            </div>
+            <div className="h-1.5 sm:h-2 w-full bg-[#0361DA]"></div>
+          </div>
+
+          <div className="rounded-xl overflow-hidden bg-[#1D1D33] relative">
+            <div className="p-2 sm:p-4 pb-1.5 sm:pb-3 flex flex-col items-center">
+              <img
+                src="/images/pending.png"
+                alt="Pending"
+                className="w-3.5 h-3.5 sm:w-5 sm:h-5 object-contain mb-0.5 sm:mb-2"
+              />
+              <span className="text-[10px] sm:text-sm text-white/60">
+                Pending
+              </span>
+              <span className="text-lg sm:text-2xl font-semibold text-white mt-0.5 sm:mt-1">
+                0
+              </span>
+            </div>
+            <div className="h-1.5 sm:h-2 w-full bg-[#0361DA]"></div>
+          </div>
+
+          <div className="rounded-xl overflow-hidden bg-[#1D1D33] relative">
+            <div className="p-2 sm:p-4 pb-1.5 sm:pb-3 flex flex-col items-center">
+              <img
+                src="/images/error.png"
+                alt="Failed"
+                className="w-3.5 h-3.5 sm:w-5 sm:h-5 object-contain mb-0.5 sm:mb-2"
+              />
+              <span className="text-[10px] sm:text-sm text-white/60">Failed</span>
+              <span className="text-lg sm:text-2xl font-semibold text-white mt-0.5 sm:mt-1">
+                0
+              </span>
+            </div>
+            <div className="h-1.5 sm:h-2 w-full bg-[#0361DA]"></div>
+          </div>
+        </div>
+
+        {/* Tasks in Queue - Empty State */}
+        <div className="mb-4">
+          <h3 className="text-sm font-medium text-white/90 mb-3">
+            Tasks in Queue
+          </h3>
+          <div className="flex flex-col items-center justify-center py-6 sm:py-16 text-white/60">
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-10 h-10 sm:w-16 sm:h-16 flex items-center justify-center rounded-md bg-[#1D1D33]/50 mb-3 sm:mb-6">
+                <FileCode className="w-5 h-5 sm:w-8 sm:h-8 text-white/30" />
+              </div>
+              <p className="text-base sm:text-xl font-medium">
+                Node is not active
+              </p>
+              <p className="text-[10px] sm:text-sm mt-1 sm:mt-2">
+                Start your node to receive and view tasks
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -268,10 +393,15 @@ export const TaskPipeline = () => {
             Current Task
           </h3>
           {processingTasks.slice(0, 1).map((task) => {
-            const progress = selectTaskProgress(
-              task,
-              node.hardwareInfo?.rewardTier || "cpu"
-            );
+            const hardwareTier = node.hardwareInfo?.rewardTier || "cpu";
+            const progress = selectTaskProgress(task, hardwareTier);
+            
+            // ✅ FIXED: Calculate time remaining based on hardware tier
+            const completionTime = TASK_CONFIG.COMPLETION_TIMES[hardwareTier][task.type];
+            const elapsed = task.processing_start 
+              ? Math.floor((Date.now() - new Date(task.processing_start).getTime()) / 1000)
+              : 0;
+            const remaining = Math.max(0, completionTime - elapsed);
 
             return (
               <div
@@ -300,17 +430,22 @@ export const TaskPipeline = () => {
                           Processing
                         </div>
                       </div>
-                      <p className="text-[10px] sm:text-sm text-white/80 mt-1 sm:mt-2 break-all">
+                      <p className="text-[10px] sm:text-sm text-white/80 mt-1 sm:mt-2 break-words max-w-full overflow-hidden">
                         Task ID: {task.id}
                       </p>
                       <p className="text-xs text-white/55 mt-1">
-                        Processing...
+                        {elapsed}s / {completionTime}s • {remaining}s remaining
                       </p>
-                      <div className="w-full h-1.5 bg-[#1A1A4C] rounded-full overflow-hidden mt-2">
+                      <div className="w-full h-2 bg-[#1A1A4C] rounded-full overflow-hidden mt-2 relative">
                         <div
-                          className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-blue-500 rounded-full"
+                          className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-full transition-all duration-300 ease-out relative"
                           style={{ width: `${Math.round(progress)}%` }}
-                        ></div>
+                        >
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"></div>
+                        </div>
+                        <div className="absolute top-0 right-2 text-[10px] text-white/70 font-medium">
+                          {Math.round(progress)}%
+                        </div>
                       </div>
                     </div>
                   </div>

@@ -3,30 +3,58 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Wallet, CheckCircle, Loader2 } from "lucide-react";
-import { WalletModal } from "@/components/WalletModal";
+import { useAuth } from "@/contexts/AuthContext";
 import { useSession, WalletType } from "@/hooks/useSession";
+import WalletModal from "@/components/WalletModal";
 
 interface WalletSelectorProps {
   onClose?: () => void;
 }
 
 export const WalletSelector = ({ onClose }: WalletSelectorProps) => {
+  const { user } = useAuth();
   const { session } = useSession();
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [currentWalletType, setCurrentWalletType] = useState<WalletType | null>(
     null
   );
+  const [forceUpdate, setForceUpdate] = useState(0);
 
-  // Check if user is logged in and has a wallet
-  const isLoggedIn = session.userId !== "guest" && session.userId !== null;
-  const hasWallet = !!session.walletAddress;
+  // Check if user is logged in and has a wallet - Use AuthContext OR user profile
+  const isLoggedIn = !!user;
+  // 🔥 FORCE CHECK: Look for wallet_address in user object
+  const walletAddress = (user as any)?.wallet_address || (user as any)?.walletAddress || session.walletAddress;
+  const hasWallet = !!walletAddress;
+
+  // 🔥 FORCE re-check wallet every 2 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setForceUpdate(prev => prev + 1);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // 🔍 DEBUG: Log state changes
+  useEffect(() => {
+    console.log('🔍 WalletSelector State:', {
+      'walletAddress': walletAddress,
+      'session.walletAddress': session.walletAddress,
+      'user?.wallet_address': (user as any)?.wallet_address,
+      'hasWallet': hasWallet,
+      'isLoggedIn': isLoggedIn,
+      'full_user': user,
+      'forceUpdate': forceUpdate
+    });
+  }, [session.walletAddress, walletAddress, hasWallet, isLoggedIn, user, forceUpdate]);
 
   // Update current wallet type when session changes
   useEffect(() => {
     if (session.walletType) {
       setCurrentWalletType(session.walletType);
+    } else if (user?.wallet_type) {
+      setCurrentWalletType(user.wallet_type as WalletType);
     }
-  }, [session]);
+  }, [session, user?.wallet_type]);
 
   // Session state tracking (logging disabled), isLoggedIn, hasWallet);
 
@@ -65,14 +93,14 @@ export const WalletSelector = ({ onClose }: WalletSelectorProps) => {
               flex items-center gap-2 font-medium rounded-full 
               bg-gradient-to-r from-green-600 to-green-700 text-white
               border-1 border-green-500 hover:opacity-90 transition-opacity
-              px-6 py-3 h-auto
+              px-3 sm:px-6 py-2 sm:py-3 h-auto text-xs sm:text-sm
             `}
             title="Click to manage wallet"
           >
-            <CheckCircle className="w-5 h-5" />
-            <span>
-              {getWalletName(session.walletType)}:{" "}
-              {shortenAddress(session.walletAddress || "")}
+            <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+            <span className="font-mono">
+              {getWalletName(session.walletType || (user as any)?.wallet_type as WalletType)}:{" "}
+              {shortenAddress(walletAddress || "")}
             </span>
           </Button>
         ) : (
@@ -81,14 +109,14 @@ export const WalletSelector = ({ onClose }: WalletSelectorProps) => {
             onClick={handleWalletClick}
             disabled={!isLoggedIn}
             className={`
-              flex items-center gap-2 font-medium rounded-full 
+              flex items-center gap-1 sm:gap-2 font-medium rounded-full 
               ${
                 isLoggedIn
-                  ? "bg-gradient-to-r from-[#0361DA] to-[#20A5EF] text-white border-[#20A5EF]"
+                  ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
                   : "bg-gray-700 text-gray-300 border-gray-600 cursor-not-allowed"
               }
-              hover:opacity-90 transition-opacity
-              px-6 py-3 h-auto
+              transition-all
+              px-3 sm:px-6 py-2 sm:py-3 h-auto text-sm sm:text-base
             `}
             title={
               isLoggedIn
@@ -96,8 +124,9 @@ export const WalletSelector = ({ onClose }: WalletSelectorProps) => {
                 : "Log in first to connect a wallet"
             }
           >
-            <Wallet className="w-5 h-5" />
-            <span>Connect Wallet</span>
+            <Wallet className="w-4 h-4 sm:w-5 sm:h-5" />
+            <span className="hidden sm:inline">Connect Wallet</span>
+            <span className="sm:hidden">Connect</span>
           </Button>
         )}
       </div>

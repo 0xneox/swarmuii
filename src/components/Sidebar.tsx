@@ -12,9 +12,13 @@ import {
   HelpCircle,
   Send,
   X,
+  Crown,
+  ArrowRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProfileInfo } from "./ProfileInfo";
+import { useAuth } from "@/contexts/AuthContext";
+import { usePlan } from "@/contexts/PlanContext";
 
 
 
@@ -79,6 +83,24 @@ export function Sidebar({
   onClose,
 }: SidebarProps) {
   const pathname = usePathname();
+  const { user } = useAuth();
+  
+  // 🔥 FIX: Use SAME source as "Your Plan" card (PlanContext)
+  const { currentPlan, isLoading: planLoading } = usePlan();
+  
+  // Normalize plan name to lowercase
+  const normalizedPlan = currentPlan?.toLowerCase() || 'free';
+  const isPremium = normalizedPlan !== 'free';
+
+  // 🔍 DEBUG: Log plan info
+  React.useEffect(() => {
+    console.log('🔍 Sidebar Plan Debug:', {
+      'currentPlan from usePlan': currentPlan,
+      'normalizedPlan': normalizedPlan,
+      'isPremium': isPremium,
+      'planLoading': planLoading
+    });
+  }, [currentPlan, normalizedPlan, isPremium, planLoading]);
 
   return (
     <>
@@ -193,6 +215,55 @@ export function Sidebar({
                   <span className="text-xs">Zealy</span>
                 </a>
               </div>
+            </div>
+
+            {/* Plan CTA - Dynamic based on user's plan */}
+            <div className="mt-6 px-2">
+              {normalizedPlan === 'free' ? (
+                // Free User: Buy Plan CTA
+                <a
+                  href="https://app.neurolov.ai/subscription"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={onClose}
+                  className="group relative block w-full overflow-hidden rounded-xl bg-slate-800/30 border border-slate-700/50 transition-all duration-300 hover:bg-slate-800/50 hover:border-slate-600"
+                >
+                  <div className="relative flex items-center justify-between px-4 py-3">
+                    {/* Left side: Icon + Text */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-700/50">
+                        <Crown className="h-4 w-4 text-gray-400" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-xs font-semibold text-gray-200">
+                          Buy a Plan
+                        </span>
+                        <span className="text-[10px] text-gray-500">
+                          Unlock premium features
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Right side: Arrow */}
+                    <ArrowRight className="h-4 w-4 text-gray-500 transition-all group-hover:translate-x-1 group-hover:text-gray-300" />
+                  </div>
+                </a>
+              ) : (
+                // Premium User: Current Plan Badge
+                <div className="flex items-center gap-3 rounded-xl border border-slate-700/50 bg-slate-800/30 px-4 py-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-700/50">
+                    <Crown className="h-4 w-4 text-gray-300" />
+                  </div>
+                  <div className="flex flex-col flex-1">
+                    <span className="text-xs font-semibold capitalize text-gray-200">
+                      {normalizedPlan} Plan
+                    </span>
+                    <span className="text-[10px] text-gray-500">
+                      Active Subscription
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </nav>
 

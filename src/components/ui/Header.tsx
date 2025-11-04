@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { HelpCircle, Menu, Wallet, LogIn, LogOut } from "lucide-react";
+import { HelpCircle, Menu, Wallet, LogIn, LogOut, User, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import {
   Tooltip,
@@ -26,16 +26,17 @@ export function Header({
   onMenuToggle,
   sidebarOpen,
 }: HeaderProps) {
-  const { user, profile, isLoading, logout } = useAuth();
+  // Use AuthContext for authentication
+  const { user, isLoading, logout } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   // Derived values from user object
   const isLoggedIn = !!user;
-  const displayName = profile?.user_name || user?.email?.split('@')[0] || "Guest";
-  const hasWallet = !!profile?.wallet_address;
-  const walletType = profile?.wallet_type || "Wallet";
+  const displayName = user?.username || user?.email?.split('@')[0] || "Guest";
+  const hasWallet = !!user?.wallet_address;
+  const walletType = "Wallet";
 
   // Error-safe logout handler
   const handleLogout = async () => {
@@ -48,7 +49,7 @@ export function Header({
     }
   };
 
-  // Auth state tracking (logging disabled for security), isLoggedIn, displayName);
+  // Auth state tracking (logging disabled for security)
 
   // Effect to handle window resize for responsive design
   useEffect(() => {
@@ -118,36 +119,32 @@ export function Header({
         </TooltipProvider>
       </div>
 
-      <div className="flex items-center h-full py-1 sm:py-1.5">
+      <div className="flex items-center gap-2 mr-3 sm:mr-4 md:mr-8">
         <div className="bg-[#040404] rounded-full p-1 sm:p-1.5 flex gap-1 sm:gap-2 items-center relative group w-fit">
           {/* Login/User Profile Button */}
           {!isLoggedIn ? (
             <Button
               variant="outline"
               onClick={() => setShowAuthModal(true)}
-              disabled={isLoading}
+              data-auth-button
               className={cn(
                 "login-button",
-                "flex items-center gap-1 md:gap-2 font-medium rounded-full h-auto transition-all duration-300 min-w-[36px] sm:min-w-[40px]",
-                isCollapsed || isMobile
-                  ? "px-1.5 py-1.5 sm:px-2 sm:py-2 justify-center"
-                  : "w-[100px] sm:w-[160px] px-3 sm:px-6 py-2 sm:py-3",
-                "bg-gradient-to-r from-[#0361DA] to-[#20A5EF] text-white border-[#20A5EF]"
+                "transition-all duration-200 ease-in-out",
+                "hover:scale-105 active:scale-95",
+                "bg-blue-600 hover:bg-blue-700",
+                "text-white border-blue-500",
+                "font-medium px-8 py-2.5 rounded-full text-base",
+                "shadow-md hover:shadow-lg min-w-[120px]",
+                isCollapsed && "px-3"
               )}
-              title="Login"
             >
-              <LogIn
-                className={cn(
-                  "transition-all duration-300",
-                  isCollapsed || isMobile
-                    ? "w-3.5 h-3.5 sm:w-4 sm:h-4"
-                    : "w-3 h-3 sm:w-4 sm:h-4"
-                )}
-              />
-              {!(isCollapsed || isMobile) && (
-                <span className="text-xs sm:text-sm font-medium transition-all duration-300">
+              {isCollapsed ? (
+                <LogIn className="h-4 w-4" />
+              ) : (
+                <>
+                  <LogIn className="h-5 w-5 mr-2" />
                   Login
-                </span>
+                </>
               )}
             </Button>
           ) : (
@@ -190,9 +187,9 @@ export function Header({
       </div>
 
       {/* Auth Modal */}
-      <AuthModal
-        isOpen={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
+      <AuthModal 
+        isOpen={showAuthModal} 
+        onClose={() => setShowAuthModal(false)} 
       />
     </header>
   );

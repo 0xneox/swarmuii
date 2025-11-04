@@ -10,6 +10,7 @@ import { AuthDebugger } from "@/components/AuthDebugger";
 import { AnalyticsProvider } from "@/components/analytics/AnalyticsProvider";
 import { GA_MEASUREMENT_ID } from "@/lib/analytics";
 import "@/lib/logger"; // Initialize production logger
+import { Toaster } from 'sonner';
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -27,6 +28,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={inter.className}>
+        <Toaster position="top-right" />
         <ReduxProvider>
           <AuthProvider>
             <PlanProvider>

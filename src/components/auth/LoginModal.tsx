@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Mail, Lock, User, Eye, EyeOff, Key, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
-import { createClient } from "@/utils/supabase/client";
+// TODO: Replace with Express.js backend API
 import { toast } from "sonner";
 
 interface LoginModalProps {
@@ -62,7 +62,8 @@ export function LoginModal({
   const [signupPassword, setSignupPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   
-  const supabase = createClient();
+  // TODO: Replace with Express.js backend API
+  // const supabase = createClient();
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,9 +173,9 @@ export function LoginModal({
       setIsResetPasswordLoading(true);
       setError("");
 
-      const { error } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail, {
-        redirectTo: undefined,
-      });
+      // TODO: Replace with Express.js backend API
+      console.log('Password reset disabled - implement Express.js backend');
+      const error = new Error('Backend disabled');
 
       if (error) {
         console.error("OTP send error:", error);
@@ -207,11 +208,9 @@ export function LoginModal({
       setIsVerifyingOtp(true);
       setError("");
 
-      const { error } = await supabase.auth.verifyOtp({
-        email: forgotPasswordEmail,
-        token: otp,
-        type: 'recovery'
-      });
+      // TODO: Replace with Express.js backend API
+      console.log('OTP verification disabled - implement Express.js backend');
+      const error = new Error('Backend disabled');
 
       if (error) {
         console.error("OTP verification error:", error);
@@ -258,9 +257,9 @@ export function LoginModal({
       setIsUpdatingPassword(true);
       setError("");
 
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword
-      });
+      // TODO: Replace with Express.js backend API
+      console.log('Password update disabled - implement Express.js backend');
+      const error = new Error('Backend disabled');
 
       if (error) {
         console.error("Password update error:", error);

@@ -23,10 +23,15 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
-import { useAuth } from "@/contexts/AuthContext";
-import { createClient } from "@/utils/supabase/client";
 import { toast } from "sonner";
 import { trackLogin, trackSignup, trackError } from "@/lib/analytics";
+import { useAuth } from "@/contexts/AuthContext";
+import { 
+  validateLoginForm, 
+  validateSignupForm,
+  checkRateLimit,
+  sanitizeHTML 
+} from "@/lib/security/validation";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -34,8 +39,7 @@ interface AuthModalProps {
 }
 
 export function AuthModal({ isOpen, onClose }: AuthModalProps) {
-  const { loginWithGoogle, login, signUp, isLoading } = useAuth();
-  const supabase = createClient();
+  const { login: authLogin, signup: authSignup, isLoading: authLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState("login");
   const [showPassword, setShowPassword] = useState(false);
@@ -72,10 +76,31 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
     if (!loginEmail || !loginPassword) return;
 
     setError("");
+
+    // Rate limiting check
+    const rateLimitKey = `login_${loginEmail}`;
+    const rateCheck = checkRateLimit(rateLimitKey, 5, 300000); // 5 attempts per 5 minutes
+    if (!rateCheck.allowed) {
+      setError(`Too many login attempts. Please try again in ${rateCheck.retryAfter} seconds.`);
+      return;
+    }
+
+    // Validate form
+    const validation = validateLoginForm({
+      email: loginEmail,
+      password: loginPassword,
+    });
+
+    if (!validation.valid) {
+      const firstError = Object.values(validation.errors)[0];
+      setError(firstError);
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      await login(loginEmail, loginPassword);
+      await authLogin({ email: loginEmail.trim(), password: loginPassword });
       // Track successful login
       trackLogin("email");
       onClose();
@@ -94,31 +119,45 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
     e.preventDefault();
     if (!signupEmail || !signupUsername || !signupPassword) return;
 
-    if (signupPassword !== confirmPassword) {
-      setError("Passwords don't match");
-      return;
-    }
-
-    if (signupPassword.length < 6) {
-      setError("Password must be at least 6 characters");
-      return;
-    }
-
     setError("");
+
+    // Rate limiting check
+    const rateLimitKey = `signup_${signupEmail}`;
+    const rateCheck = checkRateLimit(rateLimitKey, 3, 600000); // 3 attempts per 10 minutes
+    if (!rateCheck.allowed) {
+      setError(`Too many signup attempts. Please try again in ${rateCheck.retryAfter} seconds.`);
+      return;
+    }
+
+    // Comprehensive validation
+    const validation = validateSignupForm({
+      email: signupEmail,
+      username: signupUsername,
+      password: signupPassword,
+      confirmPassword: confirmPassword,
+    });
+
+    if (!validation.valid) {
+      const firstError = Object.values(validation.errors)[0];
+      setError(firstError);
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      await signUp(signupEmail, signupUsername, signupPassword);
+      await authSignup({ 
+        email: signupEmail.trim(), 
+        username: signupUsername.trim(), 
+        password: signupPassword 
+      });
 
       // Track successful signup
       trackSignup("email");
 
-      // Show email confirmation banner
-      setConfirmationEmail(signupEmail);
-      setShowEmailConfirmBanner(true);
-
-      // Don't close modal immediately, show confirmation banner
-      resetSignupForm();
+      // Close modal on successful signup
+      onClose();
+      resetForm();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Signup failed");
     } finally {
@@ -128,22 +167,8 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   const handleGoogleLogin = async () => {
     setError("");
-    setIsSubmitting(true);
-
-    try {
-      await loginWithGoogle();
-      // Track successful Google login
-      trackLogin("google");
-      onClose();
-      resetForm();
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Google login failed";
-      setError(errorMessage);
-      // Track Google login error
-      trackError("google_login_failed", errorMessage);
-      setIsSubmitting(false);
-    }
+    toast.info("Google login not yet implemented");
+    // TODO: Implement Google OAuth with backend
   };
 
   const resetForm = () => {
@@ -205,21 +230,9 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       setIsResetPasswordLoading(true);
       setError("");
 
-      const { error } = await supabase.auth.resetPasswordForEmail(
-        forgotPasswordEmail,
-        {
-          redirectTo: undefined,
-        }
-      );
-
-      if (error) {
-        console.error("OTP send error:", error);
-        setError(`Failed to send OTP: ${error.message}`);
-        return;
-      }
-
-      toast.success("OTP sent to your email!");
-      setShowOtpModal(true);
+      // TODO: Implement password reset with backend
+      toast.info("Password reset not yet implemented");
+      return;
     } catch (error) {
       console.error("OTP send error:", error);
       setError("Failed to send OTP");
@@ -243,24 +256,9 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       setIsVerifyingOtp(true);
       setError("");
 
-      const { error } = await supabase.auth.verifyOtp({
-        email: forgotPasswordEmail,
-        token: otp,
-        type: "recovery",
-      });
-
-      if (error) {
-        console.error("OTP verification error:", error);
-        if (error.message.includes("expired")) {
-          setError("OTP has expired. Please request a new one.");
-        } else {
-          setError("Invalid OTP. Please try again.");
-        }
-        return;
-      }
-
-      toast.success("OTP verified successfully!");
-      setOtpVerified(true);
+      // TODO: Implement OTP verification with backend
+      toast.info("OTP verification not yet implemented");
+      return;
     } catch (error) {
       console.error("OTP verification error:", error);
       setError("Invalid OTP. Please try again.");
@@ -294,23 +292,9 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       setIsUpdatingPassword(true);
       setError("");
 
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-
-      if (error) {
-        console.error("Password update error:", error);
-        setError(`Failed to update password: ${error.message}`);
-        return;
-      }
-
-      toast.success("Password updated successfully!");
-
-      // Reset all states and close modals
-      setShowOtpModal(false);
-      setShowForgotPassword(false);
-      resetForgotPasswordStates();
-      setActiveTab("login");
+      // TODO: Implement password update with backend
+      toast.info("Password update not yet implemented");
+      return;
     } catch (error) {
       console.error("Password update error:", error);
       setError("Failed to update password");
@@ -447,9 +431,9 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 <Button
                   type="submit"
                   className="w-full bg-[#0361DA] hover:bg-[#0361DA]/80 text-white"
-                  disabled={isSubmitting || !loginEmail || !loginPassword}
+                  disabled={isSubmitting || authLoading || !loginEmail || !loginPassword}
                 >
-                  {isSubmitting ? "Signing in..." : "Sign In"}
+                  {isSubmitting || authLoading ? "Signing in..." : "Sign In"}
                 </Button>
 
                 <div className="text-center">
@@ -650,13 +634,14 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 className="w-full bg-[#0361DA] hover:bg-[#0361DA]/80 text-white"
                 disabled={
                   isSubmitting ||
+                  authLoading ||
                   !signupEmail ||
                   !signupUsername ||
                   !signupPassword ||
                   !confirmPassword
                 }
               >
-                {isSubmitting ? "Creating account..." : "Create Account"}
+                {isSubmitting || authLoading ? "Creating account..." : "Create Account"}
               </Button>
             </form>
           </TabsContent>

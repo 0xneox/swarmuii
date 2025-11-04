@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { createClient } from '@/utils/supabase/client';
+// TODO: Replace with new database client
 
 // Types for the referral system
 type TierLevel = 'tier_1' | 'tier_2' | 'tier_3';
@@ -72,7 +72,8 @@ export function useReferrals(): UseReferralsReturn {
   const [isFetching, setIsFetching] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const supabase = createClient();
+  // TODO: Replace with new database client
+  // const supabase = createClient();
 
   /**
    * Verifies if a referral code exists and returns the referrer's ID

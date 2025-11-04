@@ -1,9 +1,9 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { useAuth } from "./AuthContext";
-import { getUserPlanFromTaskSupabase } from "@/lib/taskSupabase";
+import { useAuth } from "@/contexts/AuthContext";
 import { getTierByName, freeSubscriptionTier, SubscriptionTier } from "@/types/subscriptionTiers";
+import apiClient from "@/lib/api/client";
 
 interface PlanContextType {
   currentPlan: string;
@@ -34,7 +34,7 @@ interface PlanProviderProps {
 }
 
 export function PlanProvider({ children }: PlanProviderProps) {
-  const { user, profile, updateProfile } = useAuth();
+  const { user } = useAuth(); // ✅ FIX: Use real auth
   const [currentPlan, setCurrentPlan] = useState<string>("free");
   const [planDetails, setPlanDetails] = useState<SubscriptionTier>(freeSubscriptionTier);
   const [isLoading, setIsLoading] = useState(false);
@@ -44,46 +44,39 @@ export function PlanProvider({ children }: PlanProviderProps) {
   // Plan hierarchy for restriction checking
   const planHierarchy = ["free", "basic", "pro", "elite"];
 
-  const syncPlan = async () => {
-    if (!user?.email || !profile?.id) {
-      console.log("No user or profile available for plan sync");
+  const fetchInitialPlan = async () => {
+    if (!user?.id) {
+      setCurrentPlan('free');
+      setPlanDetails(freeSubscriptionTier);
       return;
     }
 
     setIsLoading(true);
-    setError(null);
-
     try {
-      // Get plan from task Supabase
-      const taskPlan = await getUserPlanFromTaskSupabase(user.email);
+      // ✅ FIX: Fetch real subscription from backend using apiClient
+      const response = await apiClient.get('/subscriptions/current');
       
-      if (taskPlan && taskPlan !== profile.plan) {
-        // Update the profile with the new plan
-        await updateProfile({ plan: taskPlan });
-        setCurrentPlan(taskPlan);
-        setPlanDetails(getTierByName(taskPlan));
-      } else {
-        // Use current profile plan
-        const plan = profile.plan || "free";
-        setCurrentPlan(plan);
-        setPlanDetails(getTierByName(plan));
-      }
-      
+      const planName = response.data.data?.plan_name || 'free';
+      setCurrentPlan(planName);
+      setPlanDetails(getTierByName(planName));
       setLastSynced(new Date());
+      setError(null);
+      console.log(`✅ User plan loaded: ${planName}`, response.data.data);
     } catch (err) {
-      console.error("Error syncing plan:", err);
-      setError(err instanceof Error ? err.message : "Failed to sync plan");
+      console.error('Plan fetch error:', err);
+      // Fallback to free plan if endpoint not implemented yet
+      setError(null); // Don't show error for now
+      setCurrentPlan('free');
+      setPlanDetails(freeSubscriptionTier);
+      console.warn('⚠️ Using free plan as fallback');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Auto-sync plan when user changes
-  useEffect(() => {
-    if (user && profile) {
-      syncPlan();
-    }
-  }, [user?.id, profile?.id]);
+  const syncPlan = async () => {
+    await fetchInitialPlan();
+  };
 
   // Check if user has access to a feature based on their plan
   const hasFeatureAccess = (feature: keyof SubscriptionTier['aiCredits']): boolean => {
@@ -145,6 +138,14 @@ export function PlanProvider({ children }: PlanProviderProps) {
       message: `This feature requires ${requiredPlan} plan or higher. Current plan: ${currentPlan}`
     };
   };
+
+  // ✅ FIX: Load plan on mount and when user changes
+  useEffect(() => {
+    if (user?.id) {
+      fetchInitialPlan();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const value: PlanContextType = {
     currentPlan,

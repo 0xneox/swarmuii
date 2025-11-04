@@ -23,21 +23,15 @@ const loadNodeState = (): NodeState => {
     if (saved) {
       const parsed = JSON.parse(saved);
       
-      // If node was active, calculate accumulated uptime and resume
-      if (parsed.isActive && parsed.currentSessionStart) {
-        const now = Date.now();
-        const sessionStart = new Date(parsed.currentSessionStart).getTime();
-        const sessionUptime = Math.floor((now - sessionStart) / 1000);
-        
-        return {
-          ...parsed,
-          totalUptime: parsed.totalUptime + sessionUptime,
-          currentSessionStart: new Date().toISOString(), // Reset session start
-          lastActiveTime: new Date().toISOString()
-        };
-      }
-      
-      return parsed;
+      // ✅ CRITICAL FIX: Always set isActive to false on load
+      // Node should only be active if user explicitly starts it
+      // Previous session may have expired or browser closed while node was running
+      return {
+        ...parsed,
+        isActive: false, // Always inactive on app load
+        startTime: null,
+        currentSessionStart: null,
+      };
     }
   } catch (error) {
     logger.error('Failed to load node state', error);
@@ -77,9 +71,13 @@ const nodeSlice = createSlice({
       
       const now = new Date().toISOString();
       state.isActive = true;
-      state.startTime = state.startTime || now; // Keep original start time if exists
+      state.startTime = now; // Reset start time for new session
       state.currentSessionStart = now;
       state.lastActiveTime = now;
+      
+      // CRITICAL FIX: Reset totalUptime to 0 for countdown system
+      // We track remaining time, not accumulated time
+      state.totalUptime = 0;
       
       logger.log(`Node started: ${state.nodeId}`);
       saveNodeState(state);
@@ -88,19 +86,15 @@ const nodeSlice = createSlice({
     stopNode: (state) => {
       if (!state.isActive) return;
       
-      // Calculate and add current session uptime to total
-      if (state.currentSessionStart) {
-        const now = Date.now();
-        const sessionStart = new Date(state.currentSessionStart).getTime();
-        const sessionUptime = Math.floor((now - sessionStart) / 1000);
-        state.totalUptime += sessionUptime;
-      }
+      // For countdown system, we don't accumulate totalUptime
+      // The remaining time is tracked in the database and synced before stopping
       
       state.isActive = false;
       state.currentSessionStart = null;
       state.lastActiveTime = new Date().toISOString();
+      state.totalUptime = 0; // Reset for next session
       
-      logger.log(`Node stopped. Total uptime: ${state.totalUptime}s`);
+      logger.log(`Node stopped`);
       saveNodeState(state);
     },
     
@@ -134,14 +128,16 @@ export const { registerDevice, startNode, stopNode, updateUptime, resetNode } = 
 export const selectCurrentUptime = (state: { node: NodeState }): number => {
   const { node } = state;
   if (!node.isActive || !node.currentSessionStart) {
-    return node.totalUptime;
+    return 0; // Not running, return 0
   }
   
+  // For countdown system: only return current session elapsed time
+  // Don't add totalUptime (always 0 in countdown system)
   const now = Date.now();
   const sessionStart = new Date(node.currentSessionStart).getTime();
   const sessionUptime = Math.floor((now - sessionStart) / 1000);
   
-  return node.totalUptime + sessionUptime;
+  return sessionUptime; // Only current session time
 };
 
 export const selectNode = (state: { node: NodeState }) => state.node;

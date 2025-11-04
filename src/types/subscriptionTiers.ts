@@ -20,9 +20,9 @@ export interface SubscriptionTier {
 
 export const subscriptionTiers: SubscriptionTier[] = [
   {
-    name: "Basic",
+    name: "basic",
     price: 10,
-    maxUptime: (4 + 6) * 60 * 60, // 10 hours
+    maxUptime: 10 * 60 * 60, // 10 hours = 36000s
     deviceLimit: 1,
     aiCredits: {
       neuroImageGen: "limited",
@@ -35,13 +35,13 @@ export const subscriptionTiers: SubscriptionTier[] = [
     benefits: [
       "Neuro Image Gen",
       "Freedom AI with 10,000 credits",
-      "+6 Hr on 1 device Swarm Node connection"
+      "10 Hr on 1 device Swarm Node connection"
     ]
   },
   {
-    name: "Ultimate",
+    name: "ultimate",
     price: 15,
-    maxUptime: (4 + 8) * 60 * 60, // 12 hours
+    maxUptime: 12 * 60 * 60, // 12 hours = 43200s (4 base + 8 extra from Compute App)
     deviceLimit: 2,
     aiCredits: {
       neuroImageGen: "unlimited",
@@ -52,15 +52,15 @@ export const subscriptionTiers: SubscriptionTier[] = [
       creator3D: false
     },
     benefits: [
-      "Neuro Image Gen",
-      "Freedom AI with unlimited credits",
-      "+8 Hr on 2 device Swarm Node connection"
+      "Neuro Image Gen - unlimited",
+      "Freedom AI - unlimited",
+      "12 Hr on 2 device Swarm Node connection"
     ]
   },
   {
-    name: "Enterprise",
+    name: "enterprise",
     price: 50,
-    maxUptime: 24 * 60 * 60, // 24 hours
+    maxUptime: 24 * 60 * 60, // 24 hours = 86400s
     deviceLimit: 6,
     aiCredits: {
       neuroImageGen: "unlimited",
@@ -85,9 +85,9 @@ export const subscriptionTiers: SubscriptionTier[] = [
 export const getTierByName = (name: string): SubscriptionTier =>
   subscriptionTiers.find((tier) => tier.name.toLowerCase() === name.toLowerCase()) ?? freeSubscriptionTier;
 
-// Optional: Add a default free tier
+// ✅ Free tier (matches backend)
 export const freeSubscriptionTier: SubscriptionTier = {
-  name: "Free",
+  name: "free",
   price: 0,
   maxUptime: 4 * 60 * 60, // 4 hours
   deviceLimit: 1,
@@ -101,6 +101,7 @@ export const freeSubscriptionTier: SubscriptionTier = {
   },
   benefits: [
     "Basic Access",
+    "4 Hr on 1 device Swarm Node",
     "Limited AI Credits"
   ]
 };

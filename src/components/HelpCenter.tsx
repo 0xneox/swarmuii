@@ -10,10 +10,14 @@ import {
   Book,
   FileText,
   ExternalLink,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion, AnimatePresence } from "framer-motion";
+import { supportService } from "@/lib/api/support";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "@/lib/toast";
 
 // Mock translation function - replace with actual i18n implementation
 const useTranslation = () => {
@@ -160,9 +164,10 @@ const HelpCategoryCard = ({
 
 export default function HelpCenter() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [formData, setFormData] = useState({
-    name: "",
-    email: "",
+    name: user?.username || "",
+    email: user?.email || "",
     message: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -232,37 +237,46 @@ export default function HelpCenter() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validation
+    if (!formData.name.trim() || !formData.email.trim() || !formData.message.trim()) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    if (formData.message.trim().length < 20) {
+      toast.error('Please provide a detailed message (minimum 20 characters)');
+      return;
+    }
+
+    if (formData.message.trim().length > 1000) {
+      toast.error('Message is too long (maximum 1000 characters)');
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmitStatus({ type: null, message: '' });
 
     try {
-      const response = await fetch('/api/support-tickets', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
+      await supportService.submitTicket({
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        message: formData.message.trim(),
       });
 
-      const result = await response.json();
-
-      if (response.ok) {
-        setSubmitStatus({
-          type: 'success',
-          message: 'Thank you for your message! We\'ll get back to you soon.',
-        });
-        setFormData({ name: "", email: "", message: "" });
-      } else {
-        setSubmitStatus({
-          type: 'error',
-          message: result.error || 'Failed to submit your message. Please try again.',
-        });
-      }
+      toast.success('Support ticket submitted! We\'ll respond within 24 hours.');
+      setSubmitStatus({
+        type: 'success',
+        message: 'Thank you! We\'ll respond within 24 hours.',
+      });
+      setFormData({ name: "", email: "", message: "" });
     } catch (error) {
       console.error('Error submitting support ticket:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to submit ticket';
+      toast.error(errorMsg);
       setSubmitStatus({
         type: 'error',
-        message: 'Network error. Please check your connection and try again.',
+        message: errorMsg,
       });
     } finally {
       setIsSubmitting(false);
@@ -409,11 +423,11 @@ export default function HelpCenter() {
                 <Button
                   type="submit"
                   disabled={isSubmitting}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white px-6 py-2"
+                  className="gradient-button rounded-lg px-6 py-2 font-semibold"
                 >
                   {isSubmitting ? (
                     <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       Submitting...
                     </>
                   ) : (

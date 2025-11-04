@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { createClient } from '@/utils/supabase/client';
+// TODO: Replace with new auth system
 import { useAppDispatch, useAppSelector } from '@/lib/store';
 import { selectCompletedTasksForStats, resetCompletedTasksForStats } from '@/lib/store/slices/taskSlice';
 import { selectNode } from '@/lib/store/slices/nodeSlice';
@@ -39,8 +38,8 @@ const STORAGE_KEY = '_device_metrics_store_v3'; // Incremented version
 const SYNC_THRESHOLD = 5 * 60 * 1000; // 5 minutes - how often to sync with server
 
 export const useNodeUptime = () => {
-  const { user } = useAuth();
-  const supabase = createClient();
+  // TODO: Replace with new auth system
+  const user = null;
   const dispatch = useAppDispatch();
   const node = useAppSelector(selectNode);
   const completedTasksForStats = useAppSelector(selectCompletedTasksForStats);

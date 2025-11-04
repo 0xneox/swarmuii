@@ -23,7 +23,9 @@ import { Input } from "@/components/ui/input";
 import { ReferralStatCard } from "./ReferralStatCard";
 import { User as LucideUser } from "lucide-react";
 import { useReferrals } from "@/hooks/useRefferals";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from '@/lib/toast';
+import { referralService } from "@/lib/api/referrals";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaSquareXTwitter, FaWhatsapp, FaTelegram } from "react-icons/fa6";
 
@@ -60,7 +62,8 @@ export const ReferralProgram = () => {
   const [isReferred, setIsReferred] = useState(false);
   const [referrerInfo, setReferrerInfo] = useState<any>(null);
 
-  const { user, profile: userProfile } = useAuth();
+  const { user } = useAuth();
+  const userProfile = user;
   const {
     verifyReferralCode,
     createReferralRelationship,
@@ -81,34 +84,36 @@ export const ReferralProgram = () => {
   const loadReferralData = async () => {
     setIsLoading(true);
     try {
-      // Get my referrals using API route
-      const { data: myReferrals } = await getMyReferrals(user!.id);
-      setReferralData(myReferrals);
+      // Get my referrals using Express backend
+      const myReferrals = await referralService.getReferrals();
+      setReferralData({ referrals: myReferrals || [], total_referrals: myReferrals?.length || 0 });
 
-      // Get referral data using API route with cache busting
-      const response = await fetch(`/api/referrals?t=${Date.now()}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        },
-      });
-
-      if (response.ok) {
-        const referralApiData = await response.json();
-        console.log('Fresh referral data loaded:', referralApiData);
-        
-        setUnclaimedRewards(referralApiData.unclaimedRewards || []);
-        setTotalReferralEarnings(referralApiData.totalReferralEarnings || 0);
-        setClaimedRewards(referralApiData.claimedRewards || 0);
-        setPendingRewards(referralApiData.pendingRewards || 0);
-      } else {
-        console.error('Failed to load referral data from API:', response.status);
-      }
+      // Get referral stats from Express backend
+      const stats = await referralService.getStats();
+      console.log('Referral stats loaded:', stats);
+      
+      // Map backend stats to component state
+      setTotalReferralEarnings(stats?.total_rewards ?? 0);
+      setClaimedRewards((stats?.total_rewards ?? 0) - (stats?.pending_rewards ?? 0));
+      setPendingRewards(stats?.pending_rewards ?? 0);
+      
+      // For unclaimed rewards, we would need a separate endpoint
+      // For now, we'll construct it from stats
+      setUnclaimedRewards([]);
 
     } catch (error) {
-      console.error('Error loading referral data:', error);
+      // Silently handle 404 - backend not fully implemented
+      if (error instanceof Error && error.message.includes('404')) {
+        console.warn('Referral endpoints not fully available yet');
+      } else {
+        console.error('Error loading referral data:', error);
+      }
+      // Set default values
+      setReferralData({ referrals: [], total_referrals: 0 });
+      setTotalReferralEarnings(0);
+      setClaimedRewards(0);
+      setPendingRewards(0);
+      setUnclaimedRewards([]);
     } finally {
       setIsLoading(false);
     }
@@ -118,22 +123,13 @@ export const ReferralProgram = () => {
     if (!user?.id) return;
 
     try {
-      const response = await fetch('/api/referrals/check-referred', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setIsReferred(data.isReferred);
-        setReferrerInfo(data.referrerInfo);
-      } else {
-        console.error('Failed to check referral status');
-        setIsReferred(false);
-        setReferrerInfo(null);
-      }
+      // Check if user has referrals (if they have referrals, they were referred)
+      const myReferrals = await referralService.getReferrals();
+      
+      // User is considered referred if they joined through a referral code
+      // This would ideally come from user profile, but we can infer from data
+      setIsReferred(false); // Default to false, backend should provide this info
+      setReferrerInfo(null);
     } catch (error) {
       console.error('Error checking referral status:', error);
       setIsReferred(false);
@@ -141,7 +137,7 @@ export const ReferralProgram = () => {
     }
   };
 
-  const userReferralCode = userProfile?.referral_code || null;
+  const userReferralCode = userProfile?.referralCode || null;
   const referralLink = userReferralCode && typeof window !== "undefined"
     ? `${window.location.origin}?ref=${userReferralCode}`
     : null;
@@ -228,22 +224,7 @@ export const ReferralProgram = () => {
       }
 
       if (success) {
-        const rewardsResponse = await fetch('/api/referrals/rewards', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            referralCode: extractedCode,
-            userId: user!.id,
-          }),
-        });
-
-        if (!rewardsResponse.ok) {
-          const errorData = await rewardsResponse.json();
-          throw new Error(errorData.error || 'Failed to add referral rewards');
-        }
-
+        // Backend should handle reward creation automatically
         setReferralSuccess(true);
         setReferralError("");
         setReferralCode("");
@@ -264,51 +245,16 @@ export const ReferralProgram = () => {
 
     setIsClaimingReward(true);
     try {
-      const response = await fetch('/api/referrals/claim', {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          reward_id: rewardId
-        })
-      });
-
-      const apiResult = await response.json();
-
-      if (apiResult.success) {
-        // Update local state immediately
-        setUnclaimedRewards(prev => prev.filter(reward => reward.reward_id !== rewardId));
-        setPendingRewards(prev => prev - amount);
-        setClaimedRewards(prev => prev + amount);
-        
-        // Show success message
-        setClaimSuccess(true);
-        setTimeout(() => setClaimSuccess(false), 3000);
-
-        // Multiple refresh attempts with increasing delays
-        const refreshData = async (attempt: number = 1) => {
-          try {
-            await loadReferralData();
-            console.log(`Data refresh attempt ${attempt} completed`);
-          } catch (error) {
-            console.error(`Data refresh attempt ${attempt} failed:`, error);
-            // Retry up to 3 times with increasing delays
-            if (attempt < 3) {
-              setTimeout(() => refreshData(attempt + 1), 1000 * attempt);
-            }
-          }
-        };
-
-        // Start refresh attempts after delays
-        setTimeout(() => refreshData(1), 1000);  // 1 second
-        setTimeout(() => refreshData(2), 3000);  // 3 seconds  
-        setTimeout(() => refreshData(3), 5000);  // 5 seconds
-      } else {
-        throw new Error(apiResult.error || "Failed to claim referral reward");
-      }
+      // TODO: Implement claim reward endpoint in Express backend
+      // This would be: await referralService.claimReward(rewardId);
+      console.warn('Referral reward claiming not yet implemented in Express backend');
+      toast.info('Referral reward claiming feature coming soon!');
+      
+      // For now, just refresh data
+      await loadReferralData();
     } catch (error) {
       console.error('Error claiming reward:', error);
+      toast.error('Failed to claim reward');
     } finally {
       setIsClaimingReward(false);
     }
@@ -468,6 +414,53 @@ export const ReferralProgram = () => {
     );
   };
 
+  // Show authentication required UI if user is not logged in
+  if (!user) {
+    return (
+      <div className="flex flex-col stat-card">
+        <div className="flex justify-between items-center mb-8">
+          <h2 className="text-xl">Referral Program</h2>
+        </div>
+
+        <div className="flex flex-col items-center justify-center h-[400px] p-8 bg-[#161628] rounded-lg">
+          <div className="w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-blue-500/10">
+            <Lock className="w-8 h-8 text-blue-400" />
+          </div>
+          <h3 className="text-xl font-semibold text-blue-400 mb-2">
+            Authentication Required
+          </h3>
+          <p className="text-slate-400 text-center mb-6">
+            Please sign in to access this feature and view your personalized data.
+          </p>
+          <Button 
+            className="gradient-button px-6 py-2 rounded-full"
+            onClick={() => {
+              // Trigger auth modal - you can customize this
+              const signInButton = document.querySelector('[data-auth-button]') as HTMLElement;
+              if (signInButton) signInButton.click();
+            }}
+          >
+            <svg
+              className="w-5 h-5 mr-2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+              ></path>
+            </svg>
+            Sign In
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 sm:space-y-8 p-3 sm:p-6 rounded-3xl max-w-full overflow-x-hidden">
       {/* Stats Cards */}
@@ -510,7 +503,7 @@ export const ReferralProgram = () => {
       </div>
 
       {/* Share Buttons */}
-      {userProfile?.id ? (
+      {true ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-6">
           <motion.button
             className="gradient-button py-3 sm:py-4 flex items-center justify-center gap-2 relative overflow-hidden"

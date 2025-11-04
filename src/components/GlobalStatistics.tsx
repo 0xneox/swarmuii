@@ -1,19 +1,24 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { TrophyIcon, UsersIcon, CpuIcon, CoinsIcon } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import apiClient from "@/lib/api/client";
 import {
   Activity,
   Clock,
-  Users,
   Server,
   RefreshCw,
   Crown,
   Medal,
   TrendingUp,
   Goal,
+  Lock,
+  Users,
 } from "lucide-react";
 import { InfoTooltip } from "./InfoTooltip";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
 
 // Mock data for demonstration
 const mockStats = {
@@ -99,6 +104,7 @@ interface LeaderboardEntry {
 }
 
 export const GlobalStatistics = () => {
+  const { user } = useAuth();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [currentUserRank, setCurrentUserRank] =
@@ -112,111 +118,40 @@ export const GlobalStatistics = () => {
     totalTasks: 0,
   });
 
-  // Mock user profile for demonstration
-  const userProfile = { id: "user123", user_name: "CurrentUser" };
+  const userProfile = user;
 
-  // Fetch network statistics from real API
-  const fetchNetworkStats = async () => {
-    const response = await fetch("/api/global-statistics", {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`API call failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.stats;
-  };
-
-  // Fetch leaderboard data from real API
-  const fetchLeaderboard = async () => {
-    try {
-      setIsLeaderboardLoading(true);
-
-      const response = await fetch("/api/global-statistics", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`API call failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      setLeaderboard(data.leaderboard || mockLeaderboard);
-      setTotalEarnings(data.stats?.totalEarnings || mockStats.totalEarnings);
-      setCurrentUserRank(data.currentUserRank || null);
-
-      // Also update stats if we got them
-      if (data.stats) {
-        setStats(data.stats);
-      }
-
-      setIsLeaderboardLoading(false);
-    } catch (error) {
-      console.error("Error fetching leaderboard data:", error);
-      setIsLeaderboardLoading(false);
-      // Don't fall back to mock data - keep current state
-    }
-  };
-
-  // Update stats when refreshing or initial load
-  const updateStats = async () => {
-    setIsRefreshing(true);
-    try {
-      const networkStats = await fetchNetworkStats();
-      setStats(networkStats);
-    } catch (error) {
-      console.error("Error updating stats:", error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
+  // ✅ OLD FUNCTIONS REMOVED - Now using unified handleRefresh with apiClient
 
   const handleRefresh = useCallback(async () => {
     try {
       setIsRefreshing(true);
       setIsLeaderboardLoading(true);
 
-      // Single API call to get all data
-      const response = await fetch("/api/global-statistics", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
+      // Use /global-stats (unified endpoint) and /earnings/leaderboard
+      const [statsResponse, leaderboardResponse] = await Promise.all([
+        apiClient.get('/global-stats'),
+        apiClient.get('/earnings/leaderboard?limit=100')
+      ]);
+
+      const statsData = statsResponse.data?.data || statsResponse.data;
+      
+      // Update stats from /global-stats
+      setStats({
+        totalUsers: statsData.total_users || 0,
+        totalEarnings: statsData.global_sp || 0,
+        globalComputeGenerated: statsData.global_compute_generated || 0,
+        totalTasks: statsData.total_tasks || 0,
       });
+      setTotalEarnings(statsData.global_sp || 0);
 
-      if (!response.ok) {
-        throw new Error(`API call failed: ${response.status}`);
+      // Update leaderboard
+      if (leaderboardResponse.data?.data) {
+        setLeaderboard(leaderboardResponse.data.data);
       }
 
-      const data = await response.json();
-
-      // Update all state with fresh data
-      if (data.stats) {
-        setStats(data.stats);
-        setTotalEarnings(data.stats.totalEarnings);
-      }
-
-      if (data.leaderboard) {
-        setLeaderboard(data.leaderboard);
-      }
-
-      if (data.currentUserRank) {
-        setCurrentUserRank(data.currentUserRank);
-      }
-
-      console.log("Data refreshed successfully");
+      console.log("✅ Global stats refreshed:", statsData);
     } catch (error) {
       console.error("Error refreshing data:", error);
-      // Don't fall back to mock data - keep current state or show error
     } finally {
       setIsRefreshing(false);
       setIsLeaderboardLoading(false);
@@ -288,6 +223,53 @@ export const GlobalStatistics = () => {
       scrollEl.scrollLeft = scrollLeft;
     }
   }, []);
+
+  // Show authentication required UI if user is not logged in
+  if (!user) {
+    return (
+      <div className="flex flex-col stat-card">
+        <div className="flex justify-between items-center mb-8">
+          <h2 className="text-xl">Global Statistics</h2>
+        </div>
+
+        <div className="flex flex-col items-center justify-center h-[400px] p-8 bg-[#161628] rounded-lg">
+          <div className="w-16 h-16 mb-4 flex items-center justify-center rounded-full bg-blue-500/10">
+            <Lock className="w-8 h-8 text-blue-400" />
+          </div>
+          <h3 className="text-xl font-semibold text-blue-400 mb-2">
+            Authentication Required
+          </h3>
+          <p className="text-slate-400 text-center mb-6">
+            Please sign in to access this feature and view your personalized data.
+          </p>
+          <Button 
+            className="gradient-button px-6 py-2 rounded-full"
+            onClick={() => {
+              // Trigger auth modal - you can customize this
+              const signInButton = document.querySelector('[data-auth-button]') as HTMLElement;
+              if (signInButton) signInButton.click();
+            }}
+          >
+            <svg
+              className="w-5 h-5 mr-2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+              ></path>
+            </svg>
+            Sign In
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="stat-card overflow-x-hidden p-4 rounded-lg">

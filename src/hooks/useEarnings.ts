@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { createClient } from "@/utils/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+// TODO: Replace with new auth system
 import { useAppDispatch } from "@/lib/store";
 import { resetSessionEarnings, updateTotalEarnings } from "@/lib/store/slices/earningsSlice";
 import { clearCompletedTasks } from "@/lib/store/slices/taskSlice";
@@ -25,8 +24,8 @@ export const useEarnings = () => {
   const [claimError, setClaimError] = useState<string | null>(null);
   const [claimSuccess, setClaimSuccess] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(false);
-  const supabase = createClient();
-  const { user } = useAuth();
+  // TODO: Replace with new auth system
+  const user = null;
   const dispatch = useAppDispatch();
 
   // Automatically load earnings when user is authenticated

@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { createClient } from "@/utils/supabase/client";
+// TODO: Replace with Express.js backend API
 
 const ResetPasswordContent: React.FC = () => {
   const [newPassword, setNewPassword] = useState("");
@@ -27,7 +27,8 @@ const ResetPasswordContent: React.FC = () => {
 
   const router = useRouter();
   const searchParams = useSearchParams();
-  const supabase = createClient();
+  // TODO: Replace with Express.js backend API
+  // const supabase = createClient();
   const blurRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -52,10 +53,10 @@ const ResetPasswordContent: React.FC = () => {
         setIsValidating(true);
 
         // Check if we have a valid session after password reset flow
-        const {
-          data: { session },
-          error,
-        } = await supabase.auth.getSession();
+        // TODO: Replace with Express.js backend API
+        console.log('Session validation disabled - implement Express.js backend');
+        const session = null;
+        const error = new Error('Backend disabled');
 
         if (error) {
           console.error("Session validation error:", error);
@@ -80,7 +81,7 @@ const ResetPasswordContent: React.FC = () => {
     };
 
     validateSession();
-  }, [supabase]);
+  }, []); // TODO: Remove supabase dependency
 
   const validatePasswords = () => {
     if (!newPassword) {
@@ -110,9 +111,9 @@ const ResetPasswordContent: React.FC = () => {
       setError("");
 
       // Update the user's password
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
+      // TODO: Replace with Express.js backend API
+      console.log('Password update disabled - implement Express.js backend');
+      const updateError = new Error('Backend disabled');
 
       if (updateError) {
         console.error("Password update error:", updateError);

@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState, memo } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { LogIn } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -19,7 +19,7 @@ export const AuthGuard = memo(function AuthGuard({
   showLoginPrompt = true,
   fallback 
 }: AuthGuardProps) {
-  const { isLoggedIn, isLoading, user } = useAuth();
+  const { user, isLoading, isAuthenticated } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   // Show loading spinner while checking auth
@@ -40,7 +40,7 @@ export const AuthGuard = memo(function AuthGuard({
   }
 
   // If auth required but user not logged in
-  if (requireAuth && !isLoggedIn) {
+  if (requireAuth && !isAuthenticated) {
     // Show custom fallback if provided
     if (fallback) {
       return <>{fallback}</>;
