@@ -127,6 +127,13 @@ export const GlobalStatistics = () => {
       setIsRefreshing(true);
       setIsLeaderboardLoading(true);
 
+      // 🔍 DEBUG: Check if user is logged in and token exists
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      console.log('🔍 User logged in:', !!user);
+      console.log('🔍 User ID:', user?.id);
+      console.log('🔍 Token exists:', !!token);
+      console.log('🔍 Token preview:', token ? token.substring(0, 20) + '...' : 'none');
+
       // Use /global-stats (unified endpoint) and /earnings/leaderboard
       const [statsResponse, leaderboardResponse] = await Promise.all([
         apiClient.get('/global-stats'),
@@ -134,6 +141,7 @@ export const GlobalStatistics = () => {
       ]);
 
       const statsData = statsResponse.data?.data || statsResponse.data;
+      const leaderboardData = leaderboardResponse.data?.data || leaderboardResponse.data;
       
       // Update stats from /global-stats
       setStats({
@@ -145,11 +153,38 @@ export const GlobalStatistics = () => {
       setTotalEarnings(statsData.global_sp || 0);
 
       // Update leaderboard
-      if (leaderboardResponse.data?.data) {
-        setLeaderboard(leaderboardResponse.data.data);
+      if (leaderboardData) {
+        const leaderboardArray = Array.isArray(leaderboardData) 
+          ? leaderboardData 
+          : leaderboardData.top_10 || [];
+        
+        setLeaderboard(leaderboardArray);
+        
+        // Set current user rank from leaderboard response
+        if (leaderboardData.current_user && user) {
+          setCurrentUserRank({
+            user_id: leaderboardData.current_user.user_id || user.id,
+            username: leaderboardData.current_user.username || user.username || 'You',
+            total_earnings: leaderboardData.current_user.total_earnings || user.total_balance || 0,
+            rank: leaderboardData.current_user.rank,
+          });
+        } else if (user) {
+          // Check if user is in top 10
+          const userInTop10 = leaderboardArray.find((entry: any) => entry.user_id === user.id);
+          if (userInTop10) {
+            setCurrentUserRank({
+              user_id: userInTop10.user_id,
+              username: userInTop10.username,
+              total_earnings: userInTop10.total_earnings,
+              rank: userInTop10.rank,
+            });
+          }
+        }
       }
 
       console.log("✅ Global stats refreshed:", statsData);
+      console.log("✅ Leaderboard data:", leaderboardData);
+      console.log("✅ Current user rank:", currentUserRank);
     } catch (error) {
       console.error("Error refreshing data:", error);
     } finally {
@@ -533,35 +568,33 @@ export const GlobalStatistics = () => {
                 </div>
               </div>
             ))}
-
-            {/* Current user outside top 10 */}
-            {currentUserRank &&
-              userProfile &&
-              !leaderboard.some(
-                (entry) => entry.user_id === userProfile.id
-              ) && (
-                <>
-                  <div className="flex justify-center py-2 border-t border-slate-800/50">
-                    <div className="text-slate-500 text-sm">. . .</div>
+            
+            {/* Show current user below top 10 if not in top 10 */}
+            {currentUserRank && !leaderboard.find(e => e.user_id === currentUserRank.user_id) && (
+              <>
+                <div className="px-4 py-2 text-center text-slate-500 text-xs">
+                  ⋯
+                </div>
+                <div className="grid grid-cols-12 gap-2 py-3 px-4 text-white bg-blue-900/30 border-l-2 border-blue-500">
+                  <div className="col-span-1 flex items-center">
+                    <span className="text-sm font-medium">{currentUserRank.rank}</span>
                   </div>
-                  <div className="grid grid-cols-12 gap-2 py-3 px-4 bg-blue-900/30 border-l-2 border-blue-500 text-white">
-                    <div className="col-span-1 flex items-center">
-                      <span className="w-4 h-4 flex items-center justify-center text-xs font-medium">
-                        {currentUserRank.rank}
-                      </span>
-                    </div>
-                    <div className="col-span-6 font-medium truncate">
-                      {cleanUsername(currentUserRank.username)}
-                      <span className="ml-2 text-xs bg-blue-900/40 text-blue-300 px-2 py-0.5 rounded-full">
-                        You
-                      </span>
-                    </div>
-                    <div className="col-span-5 text-right font-medium">
-                      {formatCurrency(currentUserRank.total_earnings)}
-                    </div>
+                  <div className="col-span-6 font-medium truncate">
+                    {cleanUsername(currentUserRank.username)}
+                    <span className="ml-2 text-xs bg-blue-900/40 text-blue-300 px-2 py-0.5 rounded-full">
+                      You
+                    </span>
                   </div>
-                </>
-              )}
+                  <div className="col-span-5 text-right font-semibold">
+                    {currentUserRank.total_earnings.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}{" "}
+                    SP
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-8 text-slate-400">

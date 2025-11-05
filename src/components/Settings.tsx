@@ -22,7 +22,9 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-// TODO: Replace with new database client
+import { authService } from "@/lib/api/auth";
+import apiClient from "@/lib/api/client";
+import { RateLimitBadge, RateLimitInline } from "@/components/ui/RateLimitBadge";
 
 // Mock translation function
 const useTranslation = () => {
@@ -188,7 +190,7 @@ const DeleteConfirmModal = ({
 };
 
 const Settings: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isLoading: isAuthLoading } = useAuth();
   const [language, setLanguage] = useState("en");
   const [currency, setCurrency] = useState("usd");
   const [email, setEmail] = useState("");
@@ -209,8 +211,6 @@ const Settings: React.FC = () => {
   const [otpEmail, setOtpEmail] = useState("");
 
   const { t, i18n } = useTranslation();
-  // TODO: Replace with new database client
-  // const supabase = createClient();
 
   useEffect(() => {
     setLanguage(i18n.language);
@@ -238,32 +238,29 @@ const Settings: React.FC = () => {
   useEffect(() => {
     const fetchUserEmail = async () => {
       try {
-        // TODO: Replace with Express.js backend API
-        console.log('User fetch disabled - implement Express.js backend');
-        const user = null;
-        const error = new Error('Backend disabled');
-
-        if (error) {
-          console.error("Error fetching user:", error);
-          toast.error("Failed to fetch user information");
-          return;
-        }
-
         if (user?.email) {
           setEmail(user.email);
         } else {
-          toast.error("No user email found");
+          // Try to fetch from backend
+          const profile = await authService.getProfile();
+          if (profile?.email) {
+            setEmail(profile.email);
+          }
         }
       } catch (error) {
         console.error("Error fetching user:", error);
-        toast.error("Failed to fetch user information");
+        // Don't show error toast, just use empty email
       } finally {
         setIsLoadingUser(false);
       }
     };
 
-    fetchUserEmail();
-  }, []); // TODO: Remove supabase dependency
+    if (user) {
+      fetchUserEmail();
+    } else {
+      setIsLoadingUser(false);
+    }
+  }, [user]);
 
   const languages = [
     { code: "en", name: "English" },
@@ -322,16 +319,8 @@ const Settings: React.FC = () => {
     try {
       setIsResetPasswordLoading(true);
 
-      // Send OTP using Supabase's resetPasswordForEmail with OTP template
-      // TODO: Replace with Express.js backend API
-      console.log('Password reset disabled - implement Express.js backend');
-      const error = new Error('Backend disabled');
-
-      if (error) {
-        console.error("OTP send error:", error);
-        toast.error(`Failed to send OTP: ${error.message}`);
-        return;
-      }
+      // Send OTP via Express backend
+      await apiClient.post('/auth/reset-password/send-otp', { email });
 
       toast.success(t("otp_sent"));
       setShowOtpModal(true);
@@ -344,9 +333,10 @@ const Settings: React.FC = () => {
         email: email,
         otpVerified: false
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("OTP send error:", error);
-      toast.error("Failed to send OTP");
+      const message = error.response?.data?.message || "Failed to send OTP";
+      toast.error(message);
     } finally {
       setIsResetPasswordLoading(false);
     }
@@ -377,20 +367,11 @@ const Settings: React.FC = () => {
     try {
       setIsVerifyingOtp(true);
 
-      // Verify OTP using Supabase's verifyOtp method
-      // TODO: Replace with Express.js backend API
-      console.log('OTP verification disabled - implement Express.js backend');
-      const error = new Error('Backend disabled');
-
-      if (error) {
-        console.error("OTP verification error:", error);
-        if (error.message.includes('expired')) {
-          toast.error(t("otp_expired"));
-        } else {
-          toast.error(t("invalid_otp"));
-        }
-        return;
-      }
+      // Verify OTP via Express backend
+      await apiClient.post('/auth/reset-password/verify-otp', { 
+        email: otpEmail || email, 
+        otp 
+      });
 
       toast.success(t("otp_verified"));
       setOtpVerified(true);
@@ -401,9 +382,14 @@ const Settings: React.FC = () => {
         email: otpEmail || email,
         otpVerified: true
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("OTP verification error:", error);
-      toast.error(t("invalid_otp"));
+      const message = error.response?.data?.message || "";
+      if (message.includes('expired')) {
+        toast.error(t("otp_expired"));
+      } else {
+        toast.error(t("invalid_otp"));
+      }
     } finally {
       setIsVerifyingOtp(false);
     }
@@ -433,16 +419,12 @@ const Settings: React.FC = () => {
     try {
       setIsUpdatingPassword(true);
 
-      // Update password using Supabase
-      // TODO: Replace with Express.js backend API
-      console.log('Password update disabled - implement Express.js backend');
-      const error = new Error('Backend disabled');
-
-      if (error) {
-        console.error("Password update error:", error);
-        toast.error(`Failed to update password: ${error.message}`);
-        return;
-      }
+      // Update password via Express backend
+      await apiClient.post('/auth/reset-password/update', { 
+        email: otpEmail || email,
+        otp,
+        newPassword 
+      });
 
       toast.success(t("password_updated"));
       
@@ -457,9 +439,10 @@ const Settings: React.FC = () => {
       
       // Clear localStorage state
       clearOtpState();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Password update error:", error);
-      toast.error("Failed to update password");
+      const message = error.response?.data?.message || "Failed to update password";
+      toast.error(message);
     } finally {
       setIsUpdatingPassword(false);
     }
@@ -488,39 +471,21 @@ const Settings: React.FC = () => {
     try {
       setIsDeleteAccountLoading(true);
 
-      // TODO: Replace with Express.js backend API
-      console.log('User fetch disabled - implement Express.js backend');
-      const user = null;
-
-      if (!user?.id) {
+      if (!user) {
         toast.error("User not found");
         return;
       }
 
-      // Note: For user deletion, you'll need to implement this on your backend
-      // as admin.deleteUser() requires service key
-      const response = await fetch("/api/auth/delete-user", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ userId: user.id }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to delete account");
-      }
+      // Delete account via Express backend
+      await apiClient.delete('/auth/account');
 
       toast.success("Account deleted successfully");
       localStorage.clear();
-      // TODO: Replace with Express.js backend API
-      console.log('Sign out disabled - implement Express.js backend');
       window.location.href = "/";
-    } catch (error: unknown) {
+    } catch (error: any) {
       console.error("Delete account error:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error occurred";
-      toast.error(`Failed to delete account: ${errorMessage}`);
+      const message = error.response?.data?.message || "Failed to delete account";
+      toast.error(message);
     } finally {
       setIsDeleteAccountLoading(false);
       setShowDeleteConfirm(false);
@@ -574,7 +539,7 @@ const Settings: React.FC = () => {
     );
   }
 
-  if (isLoadingUser) {
+  if (isLoadingUser || isAuthLoading) {
     return (
       <div className="flex items-center justify-center p-8">
         <RefreshCw className="w-6 h-6 animate-spin text-blue-400" />
@@ -672,6 +637,7 @@ const Settings: React.FC = () => {
             <p className="text-sm text-gray-400">
               {t("reset_password_description")}
             </p>
+            <RateLimitBadge type="password" variant="info" />
             <div className="flex flex-col space-y-2">
               <label htmlFor="reset-email" className="text-sm text-white">
                 {t("your_email_address")}
@@ -730,6 +696,7 @@ const Settings: React.FC = () => {
                 <p className="text-sm text-red-300">{t("delete_warning")}</p>
               </div>
             </div>
+            <RateLimitBadge type="account_deletion" variant="warning" />
 
             <Button
               onClick={() => setShowDeleteConfirm(true)}

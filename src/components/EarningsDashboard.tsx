@@ -18,6 +18,7 @@ import {
   Check,
   Wallet
 } from "lucide-react";
+import { RateLimitInline } from "@/components/ui/RateLimitBadge";
 import ErrorBoundary, { EarningsFallback } from './ErrorBoundary';
 import {
   LineChart,
@@ -116,31 +117,61 @@ const EarningsDashboard = () => {
   const walletAddress = user?.wallet_address || '';
   const hasWallet = !!walletAddress;
 
-  // API functions - Simplified to only use stats API
+  // API functions - Fetch earnings data
   const fetchEarningsData = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      console.log('⚠️ No user ID, skipping earnings fetch');
+      return;
+    }
 
     try {
       setIsLoadingEarnings(true);
+      console.log('🔍 Fetching earnings data for user:', user.id);
 
-      // Use task stats API - it has all the data we need!
-      const stats = await earningsService.getTaskStats();
+      // Fetch both stats and earnings
+      const [stats, earnings] = await Promise.all([
+        earningsService.getTaskStats().catch(err => {
+          console.error('❌ Stats API failed:', err);
+          return null;
+        }),
+        earningsService.getEarnings().catch(err => {
+          console.error('❌ Earnings API failed:', err);
+          return null;
+        })
+      ]);
       
-      console.log('📊 Stats API Response:', stats);
-      console.log('📊 Total Balance:', stats?.totalBalance);
-      console.log('📊 Unclaimed Reward:', stats?.unclaimedReward);
-      console.log('📊 Tasks Completed:', stats?.totalTasksCompleted);
+      console.log('📊 Stats Response:', stats);
+      console.log('💰 Earnings Response:', earnings);
+      
+      // Use stats if available, fallback to earnings or user data
+      const totalBalance = stats?.totalBalance ?? earnings?.total_balance ?? user.total_balance ?? 0;
+      const unclaimedReward = stats?.unclaimedReward ?? earnings?.total_unclaimed_reward ?? 0;
+      const tasksCompleted = stats?.totalTasksCompleted ?? earnings?.total_tasks ?? 0;
+      const todayEarnings = stats?.todayEarnings ?? 0;
+      const avgPerTask = stats?.averageEarningsPerTask ?? 0;
+      
+      console.log('🔍 Task count sources:', {
+        fromStats: stats?.totalTasksCompleted,
+        fromEarnings: earnings?.total_tasks,
+        final: tasksCompleted
+      });
       
       setEarningsData({
-        totalEarnings: stats?.totalBalance ?? 0,  // Use totalBalance from stats
-        availableBalance: stats?.totalBalance ?? 0,
-        periodEarnings: stats?.todayEarnings ?? 0,
-        avgDaily: stats?.averageEarningsPerTask ?? 0,
+        totalEarnings: totalBalance,
+        availableBalance: totalBalance,
+        periodEarnings: todayEarnings,
+        avgDaily: avgPerTask,
       });
-      setUnclaimedRewards(stats?.unclaimedReward ?? 0);  // ✅ SET UNCLAIMED
-      setTaskCompleted(stats?.totalTasksCompleted ?? 0);
+      setUnclaimedRewards(unclaimedReward);
+      setTaskCompleted(tasksCompleted);
+      
+      console.log('✅ Earnings data set:', {
+        totalBalance,
+        unclaimedReward,
+        tasksCompleted
+      });
     } catch (error) {
-      console.error("Error fetching stats data:", error);
+      console.error("❌ Error fetching earnings data:", error);
       // Set default values on error
       setEarningsData({
         totalEarnings: 0,
@@ -155,17 +186,24 @@ const EarningsDashboard = () => {
     }
   };
 
-  // ✅ NEW: Fetch categorized chart data
+  // Fetch categorized chart data
   const fetchChartData = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      console.log('⚠️ No user ID, skipping chart fetch');
+      return;
+    }
 
     try {
       setIsLoadingChart(true);
+      console.log('📊 Fetching chart data, period:', chartPeriod);
+      
       const limit = chartPeriod === 'daily' ? 30 : chartPeriod === 'monthly' ? 12 : 3;
       const data = await earningsService.getChartData(chartPeriod as 'daily' | 'monthly' | 'yearly', limit);
-      setChartData(data);
+      
+      console.log('📊 Chart data received:', data?.length || 0, 'points');
+      setChartData(data || []);
     } catch (error) {
-      console.error("Error fetching chart data:", error);
+      console.error("❌ Error fetching chart data:", error);
       setChartData([]);
     } finally {
       setIsLoadingChart(false);
@@ -175,27 +213,50 @@ const EarningsDashboard = () => {
   // Chart function removed - using stats API instead
 
   const fetchTransactions = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      console.log('⚠️ No user ID, skipping transactions fetch');
+      return;
+    }
 
     try {
       setIsLoadingTransactions(true);
+      console.log('💳 Fetching transactions...');
+      
       const data = await earningsService.getTransactions(10);
+      console.log('💳 Transactions received:', data);
 
       if (data && Array.isArray(data)) {
         // Convert API format to component format
-        const formattedTransactions: Transaction[] = data.map((tx: any) => ({
-          id: tx.id || '',
-          amount: tx.amount || 0,
-          created_at: tx.created_at || new Date().toISOString(),
-          earning_type: tx.type || tx.earning_type || 'reward',
-          transaction_hash: tx.hash || tx.transaction_hash || '',
-          totalAmount: tx.totalAmount || tx.amount || 0,
-        }));
+        const formattedTransactions: Transaction[] = data.map((tx: any, index: number) => {
+          console.log(`📅 Transaction ${index}:`, {
+            id: tx.id,
+            created_at: tx.created_at,
+            timestamp: tx.timestamp,
+            date: tx.date,
+            amount: tx.amount
+          });
+          
+          return {
+            id: tx.id || `tx-${index}`,
+            amount: tx.amount || 0,
+            // Try multiple timestamp fields
+            created_at: tx.created_at || tx.timestamp || tx.date || tx.createdAt || '',
+            earning_type: tx.type || tx.earning_type || tx.earningType || 'reward',
+            transaction_hash: tx.hash || tx.transaction_hash || tx.transactionHash || '',
+            totalAmount: tx.totalAmount || tx.total_amount || tx.amount || 0,
+          };
+        });
         
+        console.log('✅ Formatted', formattedTransactions.length, 'transactions');
+        console.log('📅 First transaction timestamp:', formattedTransactions[0]?.created_at);
         setTransactions(formattedTransactions);
+      } else {
+        console.log('⚠️ No transaction data or invalid format');
+        setTransactions([]);
       }
     } catch (error) {
-      console.error("Error fetching transactions:", error);
+      console.error("❌ Error fetching transactions:", error);
+      setTransactions([]);
     } finally {
       setIsLoadingTransactions(false);
     }
@@ -296,20 +357,26 @@ const EarningsDashboard = () => {
 
   // Fetch streak data from API
   const fetchStreakData = async () => {
+    if (!user?.id) {
+      console.log('⚠️ No user ID, skipping streak fetch');
+      return;
+    }
+
     try {
       setIsLoadingStreak(true);
+      console.log('🔥 Fetching streak data...');
+      
       const data = await earningsService.getStreakData();
-      console.log('🔍 Streak data from backend:', data);
-      console.log('🔍 canCheckIn value:', data?.canCheckIn);
+      console.log('✅ Streak data received:', data);
       setStreakData(data);
     } catch (error) {
-      // ✅ FIX: Set default streak data to enable check-in button
-      console.error("Error fetching streak data:", error);
+      console.error("❌ Error fetching streak data:", error);
+      // Set default streak data to enable check-in button
       setStreakData({
         currentStreak: 0,
         lastCheckinDate: null,
         totalCompletedCycles: 0,
-        canCheckIn: true,  // ✅ Enable check-in by default
+        canCheckIn: true,
         nextReward: 10,
         hasCheckedInToday: false
       });
@@ -381,9 +448,12 @@ const EarningsDashboard = () => {
               />
             </div>
             <div className="flex flex-col min-w-0 flex-1">
-              <span className="text-sm text-[#515194]">
-                Unclaimed Rewards (SP)
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-[#515194]">
+                  Unclaimed Rewards (SP)
+                </span>
+                <RateLimitInline type="earnings_claim" />
+              </div>
               <span className="text-xl font-bold text-white break-words">
                 {isLoadingEarnings ? (
                   <div className="flex items-center">
@@ -804,13 +874,17 @@ const EarningsDashboard = () => {
                 <div key={tx.id} className="transaction-item p-3 flex justify-between items-center">
                   <div className="flex flex-col">
                     <span className="text-sm font-medium transaction-date text-white">
-                      {new Date(tx.created_at).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
+                      {tx.created_at ? (
+                        new Date(tx.created_at).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })
+                      ) : (
+                        'Date unavailable'
+                      )}
                     </span>
                     <span className="text-xs text-[#515194] mt-1">
                       {tx.earning_type === "task"

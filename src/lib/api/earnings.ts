@@ -9,6 +9,7 @@ export interface Earnings {
   total_balance: number;
   total_unclaimed_reward: number;
   total_earnings: number;
+  total_tasks?: number;
 }
 
 export interface EarningHistory {

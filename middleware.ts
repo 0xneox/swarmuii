@@ -1,77 +1,24 @@
-import { createClient } from '@/utils/supabase/middleware';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  const { supabase, response } = createClient(request);
+  // NOTE: Auth is now handled client-side via AuthContext + JWT tokens
+  // Middleware only handles basic redirects and security headers
+  
+  const url = request.nextUrl.clone();
+  const pathname = url.pathname;
 
-  try {
-    // Refresh session if expired - required for Server Components
-    const { data: { session }, error } = await supabase.auth.getSession();
+  // All routes are now accessible - auth checks happen client-side
+  // This allows proper navigation without server-side auth blocking
+  
+  const response = NextResponse.next();
+  
+  // Add security headers
+  response.headers.set('X-Frame-Options', 'DENY');
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('X-XSS-Protection', '1; mode=block');
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
 
-    if (error) {
-      console.error('❌ Middleware session error:', error);
-      // Continue with response even if session check fails
-      return response;
-    }
-
-    const url = request.nextUrl.clone();
-    const pathname = url.pathname;
-
-    // Protected routes that require authentication
-    const protectedRoutes = [
-      '/earning', 
-      '/referral', 
-      '/settings'
-    ];
-    
-    // Routes that should be accessible without authentication
-    const publicRoutes = [
-      '/',
-      '/global-statistics',
-      '/help-center',
-      '/auth/callback',
-      '/auth/error'
-    ];
-
-    // Check if the current path is protected
-    const isProtectedRoute = protectedRoutes.some(route => 
-      pathname === route || pathname.startsWith(`${route}/`)
-    );
-
-    // Check if the current path is public
-    const isPublicRoute = publicRoutes.some(route => 
-      pathname === route || pathname.startsWith(`${route}/`)
-    );
-
-    // If trying to access protected route without authentication
-    if (isProtectedRoute && !session) {
-      console.log(`🚫 Unauthorized access attempt to ${pathname}`);
-      // Redirect to home page
-      return NextResponse.redirect(new URL('/', request.url));
-    }
-
-    // If authenticated user tries to access auth pages, redirect to home
-    if (session && (pathname === '/auth/callback' || pathname === '/auth/error')) {
-      console.log(`🔄 Authenticated user redirected from ${pathname}`);
-      // Use proper production domain for redirect
-      const redirectUrl = process.env.NODE_ENV === 'production' 
-        ? 'https://swarm.neurolov.ai/' 
-        : new URL('/', request.url).toString();
-      return NextResponse.redirect(redirectUrl);
-    }
-
-    // Add session info to headers for debugging (optional)
-    if (session) {
-      response.headers.set('x-user-id', session.user.id);
-      response.headers.set('x-user-email', session.user.email || '');
-    }
-
-    return response;
-  } catch (error) {
-    console.error('❌ Middleware error:', error);
-    // Return response even if middleware fails
-    return response;
-  }
+  return response;
 }
 
 export const config = {
