@@ -11,6 +11,7 @@ import { AnalyticsProvider } from "@/components/analytics/AnalyticsProvider";
 import { GA_MEASUREMENT_ID } from "@/lib/analytics";
 import "@/lib/logger"; // Initialize production logger
 import { Toaster } from 'sonner';
+import { ReferralPopupHandler } from "@/components/ReferralPopupHandler";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -34,6 +35,7 @@ export default function RootLayout({
             <PlanProvider>
               <GlobalSessionProvider>
                 <Layout>{children}</Layout>
+                <ReferralPopupHandler />
                 {/* <AuthDebugger /> */}
                 {GA_MEASUREMENT_ID && (
                   <AnalyticsProvider GA_MEASUREMENT_ID={GA_MEASUREMENT_ID} />

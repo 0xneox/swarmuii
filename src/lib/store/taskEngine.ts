@@ -10,6 +10,7 @@ class TaskProcessingEngine {
   private dispatch: AppDispatch;
   private isRunning = false;
   private currentPlan: 'free' | 'basic' | 'ultimate' | 'enterprise' = 'free';
+  private taskTimers: Map<string, NodeJS.Timeout> = new Map(); // ✅ Individual timers for each task
 
   constructor(dispatch: AppDispatch) {
     this.dispatch = dispatch;
@@ -20,7 +21,6 @@ class TaskProcessingEngine {
     const planLower = plan.toLowerCase();
     if (planLower in TASK_CONFIG.GENERATION) {
       this.currentPlan = planLower as 'free' | 'basic' | 'ultimate' | 'enterprise';
-      logger.log(`📋 Task engine plan set to: ${this.currentPlan}`);
       
       // Restart engine with new interval if running
       if (this.isRunning) {
@@ -35,7 +35,6 @@ class TaskProcessingEngine {
     
     this.isRunning = true;
     const config = TASK_CONFIG.GENERATION[this.currentPlan];
-    logger.log(`Task processing engine started (${this.currentPlan} plan, ${config.PROCESSING_INTERVAL}ms interval)`);
     
     // Main processing loop - interval based on subscription plan
     this.intervalId = setInterval(() => {
@@ -50,11 +49,15 @@ class TaskProcessingEngine {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    
+    // ✅ Clear all individual task timers
+    this.taskTimers.forEach((timer) => clearTimeout(timer));
+    this.taskTimers.clear();
+    
     this.isRunning = false;
     
     // Clear all proxy tasks when engine stops (but only once)
     this.dispatch(resetTasks());
-    logger.log('Task processing engine stopped and all tasks cleared');
   }
 
   private processTaskCycle() {
@@ -78,15 +81,23 @@ class TaskProcessingEngine {
     if (tasks.autoMode && totalActiveTasks < config.PENDING_QUEUE_SIZE && !tasks.isGenerating) {
       this.dispatch(generateTasks({ 
         nodeId: node.nodeId, 
-        hardwareTier 
+        hardwareTier,
+        plan: this.currentPlan // ✅ CRITICAL FIX: Pass plan to generateTasks
       }));
     }
 
     // 2. Start processing pending tasks
     // ✅ PLAN-BASED: Use plan-specific concurrent limit
     if (tasks.stats.pending > 0 && tasks.stats.processing < config.MAX_CONCURRENT_PROCESSING) {
-      this.dispatch(startProcessingTasks(hardwareTier));
+      this.dispatch(startProcessingTasks({ 
+        hardwareTier,
+        plan: this.currentPlan // ✅ CRITICAL FIX: Pass plan to startProcessingTasks
+      }));
     }
+    
+    // ✅ CRITICAL FIX: Always ensure timers exist for ALL processing tasks (every cycle)
+    // This catches any tasks that don't have timers due to timing issues
+    this.scheduleTaskCompletions(hardwareTier);
 
     // 3. Update processing tasks and complete them
     this.updateAndCompleteProcessingTasks(hardwareTier);
@@ -96,43 +107,56 @@ class TaskProcessingEngine {
     // or when the node is stopped.
   }
 
-  private updateAndCompleteProcessingTasks(hardwareTier: 'webgpu' | 'wasm' | 'webgl' | 'cpu') {
+  // ✅ NEW: Schedule individual timers for task completions
+  private scheduleTaskCompletions(hardwareTier: 'webgpu' | 'wasm' | 'webgl' | 'cpu') {
     const state = store.getState();
     const { tasks } = state;
     const now = Date.now();
 
     const processingTasks = tasks.tasks.filter(task => task.status === 'processing');
     
-    // Process tasks sequentially to avoid overwhelming the API
-    const processTasksSequentially = async () => {
-      for (const task of processingTasks) {
-        if (!task.processing_start) continue;
+    processingTasks.forEach(task => {
+      // Skip if timer already exists for this task
+      if (this.taskTimers.has(task.id)) return;
+      if (!task.processing_start) return;
 
-        const processingStart = new Date(task.processing_start).getTime();
-        const elapsed = now - processingStart;
-        const completionTime = TASK_CONFIG.COMPLETION_TIMES[hardwareTier][task.type] * 1000;
+      const processingStart = new Date(task.processing_start).getTime();
+      const completionTime = TASK_CONFIG.COMPLETION_TIMES[hardwareTier][task.type] * 1000;
+      const elapsed = now - processingStart;
+      const timeUntilCompletion = Math.max(0, completionTime - elapsed);
 
-        // Complete task if enough time has passed
-        if (elapsed >= completionTime) {
-          try {
-            await this.completeTask(task, hardwareTier);
-          } catch (error) {
-            // ✅ FIXED: Mark task as failed if backend call fails
-            logger.error(`❌ Task failed: ${error}`);
-            const { markTaskAsFailed } = await import('./slices/taskSlice');
+      // ✅ SAFEGUARD: If task is already overdue, complete it immediately
+      if (elapsed >= completionTime) {
+        this.completeTask(task, hardwareTier)
+          .catch(() => {
+            const { markTaskAsFailed } = require('./slices/taskSlice');
             this.dispatch(markTaskAsFailed(task.id));
-          }
-        }
+          });
+        return;
       }
-      
-      // Update processing tasks in store after all completions are processed
-      this.dispatch(updateProcessingTasks(hardwareTier));
-    };
-    
-    // Start sequential processing but don't block the main thread
-    processTasksSequentially().catch(error => {
-      logger.error(`Error in task processing sequence: ${error}`);
+
+      // ✅ Schedule exact completion time
+      const timer = setTimeout(async () => {
+        try {
+          await this.completeTask(task, hardwareTier);
+        } catch (error) {
+          const { markTaskAsFailed } = await import('./slices/taskSlice');
+          this.dispatch(markTaskAsFailed(task.id));
+        } finally {
+          this.taskTimers.delete(task.id);
+        }
+      }, timeUntilCompletion);
+
+      this.taskTimers.set(task.id, timer);
     });
+  }
+
+  private updateAndCompleteProcessingTasks(hardwareTier: 'webgpu' | 'wasm' | 'webgl' | 'cpu') {
+    const state = store.getState();
+    const { tasks } = state;
+
+    // Just update UI progress - actual completion handled by timers
+    this.dispatch(updateProcessingTasks(hardwareTier));
   }
 
   private async completeTask(task: ProxyTask, hardwareTier: 'webgpu' | 'wasm' | 'webgl' | 'cpu') {
@@ -156,22 +180,16 @@ class TaskProcessingEngine {
     try {
       // Call Express backend using taskService
       const { taskService } = await import('@/lib/api');
-      const result = await taskService.completeTask({
+      await taskService.completeTask({
         task_id: task.id,
         task_type: task.type as 'text' | 'image' | 'video' | '3d',
         reward_amount: rewardAmount,
       });
-
-      logger.log(`✅ Task completed via backend: ${task.type} - Reward: ${rewardAmount} SP`);
       
       // ✅ FIXED: Only update Redux on API SUCCESS
       this.dispatch(addReward(reward));
-      
-      logger.log(`💰 Unclaimed rewards: ${result.total_unclaimed_reward} SP`);
     } catch (error) {
       // ✅ FIXED: Don't give rewards if backend fails
-      logger.error(`❌ Backend failed to record task: ${error}`);
-      // Task will be marked as failed by updateProcessingTasks
       throw error; // Re-throw so calling code knows it failed
     }
   }
@@ -182,7 +200,6 @@ class TaskProcessingEngine {
     const { node } = state;
 
     if (!node.isActive || !node.nodeId || !node.hardwareInfo) {
-      logger.error('Cannot generate tasks: Node not active');
       return;
     }
 

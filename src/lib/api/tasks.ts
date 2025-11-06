@@ -37,18 +37,13 @@ class TaskService {
           : undefined,
       };
 
-      console.log('📤 Completing task:', JSON.stringify(safePayload));
-
       const { data } = await apiClient.post<{ success: boolean; data: CompleteTaskResponse }>(
         '/complete-task',
         safePayload
       );
       
-      console.log('✅ Task completed:', data.data);
       return data.data;
     } catch (error: any) {
-      console.error('❌ Task completion failed:', error.response?.data || error.message);
-      console.error('Payload sent:', payload);
       throw new Error(getErrorMessage(error));
     }
   }
@@ -78,7 +73,6 @@ class TaskService {
       );
       return data.data.uptime_seconds || 0;
     } catch (error) {
-      console.warn('Failed to fetch uptime:', error);
       return 0;
     }
   }

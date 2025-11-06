@@ -61,6 +61,10 @@ export const NodeControlPanel = () => {
     handleClaimRewards,
     runningDeviceId,
   } = useNodeController();
+  
+  // Check if selected node is running (has active session in database)
+  const selectedNodeIsRunning = selectedNode?.status === 'online';
+  const selectedNodeIsRunningElsewhere = selectedNodeIsRunning && !isNodeActive;
 
   // 🔥 HANDLE DEVICE SWITCH: Stop running device before switching
   const handleDeviceChange = async (newDeviceId: string) => {
@@ -314,33 +318,39 @@ export const NodeControlPanel = () => {
               </div>
             </SelectTrigger>
             <SelectContent className="bg-[#0A1A2F] border-[#1E293B]">
-              {nodes.map((device) => (
-                <div key={device.id} className="relative">
-                  <SelectItem
-                    value={device.id}
-                    className="text-[#515194] hover:bg-[#1D1D33] pr-10"
-                  >
-                    <div className="flex items-center gap-2">
-                      {getDeviceIcon(device.device_type || "desktop")}
-                      <span>{device.device_name}</span>
-                    </div>
-                  </SelectItem>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteDevice(device.id);
-                    }}
-                    disabled={isNodeActive}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full hover:bg-red-500/20"
-                  >
-                    <Trash2 className="w-4 h-4 text-red-500" />
-                  </button>
-                </div>
-              ))}
+              {nodes.map((device) => {
+                const isOnline = device.status === 'online';
+                return (
+                  <div key={device.id} className="relative">
+                    <SelectItem
+                      value={device.id}
+                      className="text-[#515194] hover:bg-[#1D1D33] pr-10"
+                    >
+                      <div className="flex items-center gap-2">
+                        {getDeviceIcon(device.device_type || "desktop")}
+                        <span>{device.device_name}</span>
+                        {isOnline && (
+                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                        )}
+                      </div>
+                    </SelectItem>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteDevice(device.id);
+                      }}
+                      disabled={isNodeActive}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full hover:bg-red-500/20"
+                    >
+                      <Trash2 className="w-4 h-4 text-red-500" />
+                    </button>
+                  </div>
+                );
+              })}
             </SelectContent>
           </Select>
 
-          {isViewOnlyMode && otherTabSessionInfo ? (
+          {(isViewOnlyMode && otherTabSessionInfo) || selectedNodeIsRunningElsewhere ? (
             <Button
               onClick={handleTakeOverSession}
               disabled={isStarting || !selectedNodeId || !user}

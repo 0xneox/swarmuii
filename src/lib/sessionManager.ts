@@ -57,7 +57,7 @@ export class SessionManager {
         }
       }
     } catch (error) {
-      console.error('Error parsing active session:', error);
+      // Error handled silently
     }
 
     return null;
@@ -76,7 +76,6 @@ export class SessionManager {
     };
 
     localStorage.setItem(`${SESSION_KEY}_${deviceId}`, JSON.stringify(session));
-    console.log('✅ Session registered for tab:', this.getCurrentTabId());
   }
 
   /**
@@ -84,7 +83,6 @@ export class SessionManager {
    */
   static clearSession(deviceId: string): void {
     localStorage.removeItem(`${SESSION_KEY}_${deviceId}`);
-    console.log('🗑️ Session cleared for device:', deviceId);
   }
 
   /**
@@ -101,7 +99,7 @@ export class SessionManager {
         localStorage.setItem(`${SESSION_KEY}_${deviceId}`, JSON.stringify(session));
       }
     } catch (error) {
-      console.error('Error updating session timestamp:', error);
+      // Error handled silently
     }
   }
 
@@ -131,8 +129,6 @@ export class SessionManager {
     setTimeout(() => {
       localStorage.removeItem(`${SESSION_KEY}_takeover_${deviceId}`);
     }, 1000);
-    
-    console.log('🔄 Session taken over by tab:', currentTabId);
   }
 
   /**
@@ -165,11 +161,10 @@ export class SessionManager {
           
           // If someone else took over, notify this tab
           if (takeover.newOwner !== currentTabId) {
-            console.log(`🚨 Session takeover detected! New owner: ${takeover.newOwner}`);
             onTakeoverDetected();
           }
         } catch (err) {
-          console.error('Failed to parse takeover event:', err);
+          // Error handled silently
         }
       }
     };

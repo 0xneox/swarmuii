@@ -41,13 +41,10 @@ export class NodeControlService {
         force_takeover: forceTakeover 
       });
       
-      console.log("🔍 Backend session response:", JSON.stringify(session));
-      
       // Extract session token (backend might return different field names)
       const sessionToken = session.session_token || (session as any).sessionToken || (session as any).token;
       
       if (!sessionToken) {
-        console.error("❌ Backend did not return session_token! Response:", session);
         throw new Error("Backend failed to return session token");
       }
       
@@ -66,10 +63,8 @@ export class NodeControlService {
         sessionToken: sessionToken,
       }));
 
-      console.log("✅ Session started and validated:", sessionToken);
       return sessionToken;
     } catch (error: any) {
-      console.error("❌ Failed to start session:", error);
       
       // If session already exists and not forcing takeover, throw
       if (error.message?.includes("already has an active session")) {
@@ -87,25 +82,18 @@ export class NodeControlService {
    * Stop device session with DB cleanup validation
    */
   async stopSession(deviceId: string, sessionToken: string | null): Promise<void> {
-    console.log(`🛑 stopSession called with deviceId: ${deviceId}, sessionToken: ${sessionToken ? 'EXISTS' : 'NULL'}`);
-    
     try {
       // Always call backend even if sessionToken is null (backend can clean by device_id)
-      console.log("📡 Calling backend /device-session/stop...");
       await sessionService.stopSession({
         device_id: deviceId,
         session_token: sessionToken || undefined,
       });
-      console.log("✅ Backend confirmed session stopped and removed from DB");
     } catch (error) {
-      console.error("⚠️ Failed to stop session on backend:", error);
-      console.error("Error details:", error);
       // Don't throw - we still want to clean up locally
     } finally {
       // ALWAYS clear local state
       this.activeSession = null;
       this.clearLocalSession(deviceId);
-      console.log("✅ Local session cleared from localStorage");
     }
   }
 

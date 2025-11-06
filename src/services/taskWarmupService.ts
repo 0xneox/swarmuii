@@ -39,7 +39,6 @@ export class TaskWarmupService {
     // Cancel any existing warmup
     this.cancelWarmup();
 
-    console.log("🚀 Starting task warmup service...");
     this.isWarming = true;
     
     const { nodeId, hardwareTier, dispatch, plan = 'free' } = config;
@@ -51,16 +50,18 @@ export class TaskWarmupService {
       taskEngine.setPlan(plan);
     }
 
-    console.log(`📦 Generating initial batch of ${NODE_LIMITS.TASK_SETTINGS.INITIAL_BATCH_SIZE} tasks...`);
     dispatch(generateTasks({
       nodeId,
       hardwareTier,
+      plan, // ✅ CRITICAL FIX: Pass plan to generateTasks
     }));
 
     // Phase 2: Wait for warmup delay before starting processing
     this.warmupTimeout = setTimeout(() => {
-      console.log("✅ Warmup complete, starting task processing...");
-      dispatch(startProcessingTasks(hardwareTier));
+      dispatch(startProcessingTasks({ 
+        hardwareTier,
+        plan // ✅ CRITICAL FIX: Pass plan to startProcessingTasks
+      }));
       
       // ✅ FIXED: Start task engine here (single control point)
       startTaskEngine(dispatch);
@@ -82,8 +83,6 @@ export class TaskWarmupService {
     
     // ✅ FIXED: Stop engine when warmup cancelled
     stopTaskEngine();
-    
-    console.log("❌ Task warmup cancelled and engine stopped");
   }
 
   /**

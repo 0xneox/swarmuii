@@ -26,26 +26,13 @@ export const WalletSelector = ({ onClose }: WalletSelectorProps) => {
   const walletAddress = (user as any)?.wallet_address || (user as any)?.walletAddress || session.walletAddress;
   const hasWallet = !!walletAddress;
 
-  // 🔥 FORCE re-check wallet every 2 seconds
+  // Re-check wallet every 2 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       setForceUpdate(prev => prev + 1);
     }, 2000);
     return () => clearInterval(interval);
   }, []);
-
-  // 🔍 DEBUG: Log state changes
-  useEffect(() => {
-    console.log('🔍 WalletSelector State:', {
-      'walletAddress': walletAddress,
-      'session.walletAddress': session.walletAddress,
-      'user?.wallet_address': (user as any)?.wallet_address,
-      'hasWallet': hasWallet,
-      'isLoggedIn': isLoggedIn,
-      'full_user': user,
-      'forceUpdate': forceUpdate
-    });
-  }, [session.walletAddress, walletAddress, hasWallet, isLoggedIn, user, forceUpdate]);
 
   // Update current wallet type when session changes
   useEffect(() => {

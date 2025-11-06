@@ -52,7 +52,8 @@ export const ReferralProgram = () => {
   const [referralCode, setReferralCode] = useState("");
   const [referralError, setReferralError] = useState("");
   const [referralSuccess, setReferralSuccess] = useState(false);
-  const [referralData, setReferralData] = useState<any>(null);
+  const [referralBreakdown, setReferralBreakdown] = useState<any>(null);
+  const [referralStats, setReferralStats] = useState<any>(null);
   const [unclaimedRewards, setUnclaimedRewards] = useState<UnclaimedReward[]>([]);
   const [totalReferralEarnings, setTotalReferralEarnings] = useState(0);
   const [claimedRewards, setClaimedRewards] = useState(0);
@@ -84,32 +85,33 @@ export const ReferralProgram = () => {
   const loadReferralData = async () => {
     setIsLoading(true);
     try {
-      // Get my referrals using Express backend
-      const myReferrals = await referralService.getReferrals();
-      setReferralData({ referrals: myReferrals || [], total_referrals: myReferrals?.length || 0 });
-
       // Get referral stats from Express backend
       const stats = await referralService.getStats();
-      console.log('Referral stats loaded:', stats);
+      setReferralStats(stats);
       
-      // Map backend stats to component state
-      setTotalReferralEarnings(stats?.total_rewards ?? 0);
-      setClaimedRewards((stats?.total_rewards ?? 0) - (stats?.pending_rewards ?? 0));
+      // Get detailed breakdown with Tier 1 names
+      const breakdown = await referralService.getBreakdown();
+      setReferralBreakdown(breakdown);
+      
+      // Calculate total earnings from all tiers
+      const totalEarnings = (stats?.tier1?.earnings ?? 0) + 
+                           (stats?.tier2?.earnings ?? 0) + 
+                           (stats?.tier3?.earnings ?? 0);
+      setTotalReferralEarnings(totalEarnings);
+      
+      // Use claimed and pending from stats
+      setClaimedRewards(stats?.claimed_rewards ?? 0);
       setPendingRewards(stats?.pending_rewards ?? 0);
       
-      // For unclaimed rewards, we would need a separate endpoint
-      // For now, we'll construct it from stats
       setUnclaimedRewards([]);
 
     } catch (error) {
-      // Silently handle 404 - backend not fully implemented
       if (error instanceof Error && error.message.includes('404')) {
-        console.warn('Referral endpoints not fully available yet');
-      } else {
-        console.error('Error loading referral data:', error);
+        // Backend not implemented yet
       }
       // Set default values
-      setReferralData({ referrals: [], total_referrals: 0 });
+      setReferralBreakdown({ tier1: [], tier2: { count: 0, earnings: 0 }, tier3: { count: 0, earnings: 0 } });
+      setReferralStats({ total_referrals: 0, active_referrals: 0, total_rewards: 0, tier1: { count: 0, earnings: 0 }, tier2: { count: 0, earnings: 0 }, tier3: { count: 0, earnings: 0 } });
       setTotalReferralEarnings(0);
       setClaimedRewards(0);
       setPendingRewards(0);
@@ -123,13 +125,19 @@ export const ReferralProgram = () => {
     if (!user?.id) return;
 
     try {
-      // Check if user has referrals (if they have referrals, they were referred)
-      const myReferrals = await referralService.getReferrals();
+      // Check if user was referred by someone using dedicated endpoint
+      const result = await referralService.getMyReferrer();
       
-      // User is considered referred if they joined through a referral code
-      // This would ideally come from user profile, but we can infer from data
-      setIsReferred(false); // Default to false, backend should provide this info
-      setReferrerInfo(null);
+      if (result.referred && result.referrer) {
+        setIsReferred(true);
+        setReferrerInfo({
+          id: result.referrer.id,
+          name: result.referrer.username
+        });
+      } else {
+        setIsReferred(false);
+        setReferrerInfo(null);
+      }
     } catch (error) {
       console.error('Error checking referral status:', error);
       setIsReferred(false);
@@ -142,10 +150,13 @@ export const ReferralProgram = () => {
     ? `${window.location.origin}?ref=${userReferralCode}`
     : null;
 
-  // Filter referrals by tier
-  const tier1Referrals = referralData?.referrals?.filter((ref: any) => ref.tier_level === "tier_1") || [];
-  const tier2Referrals = referralData?.referrals?.filter((ref: any) => ref.tier_level === "tier_2") || [];
-  const tier3Referrals = referralData?.referrals?.filter((ref: any) => ref.tier_level === "tier_3") || [];
+  // Get tier data from breakdown
+  const tier1Referrals = referralBreakdown?.tier1 || [];
+  const tier2Count = referralBreakdown?.tier2?.count ?? 0;
+  const tier3Count = referralBreakdown?.tier3?.count ?? 0;
+  const tier1Earnings = referralStats?.tier1?.earnings ?? 0;
+  const tier2Earnings = referralStats?.tier2?.earnings ?? 0;
+  const tier3Earnings = referralStats?.tier3?.earnings ?? 0;
 
   const handleCopyReferralLink = async () => {
     if (!referralLink) {
@@ -197,64 +208,92 @@ export const ReferralProgram = () => {
       return;
     }
 
+    // ⚠️ Check if user is trying to use their own referral code
+    if (userReferralCode && extractedCode.toUpperCase() === userReferralCode.toUpperCase()) {
+      setReferralError("❌ You cannot use your own referral code!");
+      setReferralSuccess(false);
+      toast.error("You cannot refer yourself!");
+      return;
+    }
+
     try {
-      const { referrerId, error } = await verifyReferralCode(extractedCode);
-
-      if (error) {
-        setReferralError(error.message);
-        setReferralSuccess(false);
-        return;
-      }
-
-      if (!referrerId) {
+      // Step 1: Verify the code first
+      const verification = await referralService.verifyCode({ referralCode: extractedCode });
+      
+      if (!verification?.valid || !verification?.referrer?.id) {
         setReferralError("Invalid referral code");
         setReferralSuccess(false);
         return;
       }
 
-      const { success, error: createError } = await createReferralRelationship(
-        extractedCode,
-        user!.id
-      );
-
-      if (createError) {
-        setReferralError(createError.message);
+      // ⚠️ Double check: user cannot refer themselves
+      if (verification.referrer.id === user?.id) {
+        setReferralError("❌ You cannot use your own referral code!");
         setReferralSuccess(false);
+        toast.error("You cannot refer yourself!");
         return;
       }
 
-      if (success) {
-        // Backend should handle reward creation automatically
+      // Step 2: Use the referral code (creates relationship and awards bonuses)
+      const result = await referralService.useReferralCode(extractedCode);
+      
+      if (result.success) {
         setReferralSuccess(true);
         setReferralError("");
-        setReferralCode("");
+        toast.success(result.message || `✅ Successfully joined ${verification.referrer.username}'s network! You've earned 500 SP!`);
+        
+        // Set referred state to show success banner
+        setIsReferred(true);
+        setReferrerInfo({
+          id: verification.referrer.id,
+          name: verification.referrer.username
+        });
+        
+        // Refresh referral data to show new stats
         await loadReferralData();
+        
+        // Clear the input
+        setReferralCode("");
+        
         setTimeout(() => {
           setReferralSuccess(false);
         }, 3000);
       }
-    } catch (err) {
-      console.error("Error verifying referral code:", err);
-      setReferralError("An error occurred while verifying the code");
+    } catch (err: unknown) {
+      console.error("Error using referral code:", err);
+      const errorMessage = err instanceof Error ? err.message : "An error occurred";
+      
+      // Handle specific error messages from backend
+      if (errorMessage.includes("already been referred")) {
+        setReferralError("You're already part of a referral network");
+        toast.error("You've already been referred by someone else");
+      } else if (errorMessage.includes("own referral code")) {
+        setReferralError("❌ You cannot use your own referral code!");
+        toast.error("You cannot refer yourself!");
+      } else {
+        setReferralError(errorMessage);
+        toast.error("Failed to use referral code. Please try again.");
+      }
       setReferralSuccess(false);
     }
   };
 
-  const handleClaimReward = async (rewardId: string, amount: number) => {
+  const handleClaimReward = async (earningType: string, amount: number) => {
     if (isClaimingReward) return;
 
     setIsClaimingReward(true);
     try {
-      // TODO: Implement claim reward endpoint in Express backend
-      // This would be: await referralService.claimReward(rewardId);
-      console.warn('Referral reward claiming not yet implemented in Express backend');
-      toast.info('Referral reward claiming feature coming soon!');
+      // Call backend API to claim pending referral rewards
+      const result = await referralService.claimRewards(earningType);
       
-      // For now, just refresh data
-      await loadReferralData();
+      if (result.success) {
+        toast.success(`✅ Successfully claimed ${result.claimed_amount.toFixed(2)} SP!`);
+        // Refresh referral data to update claimed/pending amounts
+        await loadReferralData();
+      }
     } catch (error) {
       console.error('Error claiming reward:', error);
-      toast.error('Failed to claim reward');
+      toast.error('Failed to claim rewards. Please try again.');
     } finally {
       setIsClaimingReward(false);
     }
@@ -474,17 +513,17 @@ export const ReferralProgram = () => {
         />
         <ReferralStatCard
           label="Second Tier"
-          value={isLoading ? "..." : tier2Referrals.length}
+          value={isLoading ? "..." : tier2Count}
           icon={<LucideUser className="w-5 h-5 text-white" />}
           backgroundImage={"/images/flower_1.png"}
-          description={`${tier2Referrals.length} indirect referrals`}
+          description={`${tier2Count} indirect referrals`}
         />
         <ReferralStatCard
           label="Third Tier"
-          value={isLoading ? "..." : tier3Referrals.length}
+          value={isLoading ? "..." : tier3Count}
           icon={<LucideUser className="w-5 h-5 text-white" />}
           backgroundImage={"/images/flower_1.png"}
-          description={`${tier3Referrals.length} indirect referrals`}
+          description={`${tier3Count} indirect referrals`}
         />
         <ReferralStatCard
           label="Total Referral Rewards"
@@ -498,7 +537,7 @@ export const ReferralProgram = () => {
           }
           backgroundImage={"/images/flower_2.png"}
           highlight
-          description={`From ${referralData?.total_referrals || 0} total referrals`}
+          description={`From ${referralStats?.total_referrals || 0} total referrals`}
         />
       </div>
 
@@ -650,17 +689,18 @@ export const ReferralProgram = () => {
 
       {/* Already Referred Banner */}
       {userProfile?.id && isReferred && (
-        <div className="bg-[radial-gradient(ellipse_at_top_left,#16a34a_0%,#0f172a_54%)] p-3 sm:p-6 rounded-2xl border border-green-500/40">
+        <div className="bg-gradient-to-br from-green-900/20 via-emerald-900/10 to-transparent p-3 sm:p-6 rounded-2xl border border-green-500/30">
           <div className="bg-gradient-to-r from-green-600/10 to-emerald-600/10 p-5 rounded-xl border border-green-500/20">
             <div className="flex items-center gap-3 mb-4">
-              <div className="bg-green-500/20 rounded-full p-2">
-                <CheckCircle className="h-6 w-6 text-green-400" />
+              <div className="bg-green-500/20 rounded-full p-2.5">
+                <CheckCircle className="h-5 w-5 text-green-400" />
               </div>
-              <div>
-                <h3 className="text-white font-medium mb-1">
-                  You've been referred by {referrerInfo?.name || 'someone'}! 🎉
+              <div className="flex-1">
+                <h3 className="text-white font-semibold text-base mb-0.5 flex items-center gap-2">
+                  You&apos;ve been referred by {referrerInfo?.name || 'Gatta1'}! 
+                  <span className="text-lg">🎉</span>
                 </h3>
-                <p className="text-sm text-green-300/80">
+                <p className="text-sm text-green-300/70">
                   Now earn more by sharing your referral code on social media
                 </p>
               </div>
@@ -829,9 +869,22 @@ export const ReferralProgram = () => {
                       SP
                     </span>
                   </div>
-                  <p className="text-[#515194]/80 text-xs sm:text-sm mt-1">
-                    Available rewards ready to claim
-                  </p>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between mt-2 gap-2">
+                    <p className="text-[#515194]/80 text-xs sm:text-sm">
+                      Claim all earnings from Dashboard
+                    </p>
+                    {pendingRewards > 0 && (
+                      <Button
+                        onClick={() => {
+                          window.location.href = '/';
+                        }}
+                        className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap"
+                      >
+                        <TrendingUp className="w-3.5 h-3.5" />
+                        Go to Dashboard
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1003,38 +1056,132 @@ export const ReferralProgram = () => {
         </div>
       )}
 
-      {/* Referral List */}
-      {userProfile?.id && referralData?.referrals?.length > 0 && (
-        <div className="bg-[#161628] rounded-2xl p-4 sm:p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-white font-medium">Your Referrals</h3>
-            <span className="text-[#515194] text-sm">
-              Total: {referralData.total_referrals}
-            </span>
-          </div>
-          <div className="space-y-4">
-            {referralData.referrals.map((ref: any) => (
-              <div
-                key={ref.user_id}
-                className="flex items-center justify-between p-3 bg-[#1E1E3F] rounded-xl"
-              >
-                <div className="flex items-center gap-3">
-                  <User className="w-5 h-5 text-blue-400" />
-                  <div>
-                    <p className="text-white text-sm">{ref.user_name}</p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-[#515194] text-xs">
-                        {ref.tier_level.replace('_', ' ').toUpperCase()}
-                      </p>
-                      <span className="text-[#515194]">•</span>
-                      <p className="text-[#515194] text-xs">
-                        Referred {new Date(ref.referred_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
+      {/* Tiered Referrals Display */}
+      {userProfile?.id && (
+        <div className="space-y-4">
+          {/* Tier 1 - Show Names & Earnings */}
+          <div className="bg-[#161628] rounded-2xl p-4 sm:p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <Users className="w-6 h-6 text-blue-400" />
+                <div>
+                  <h3 className="text-white font-medium">First Tier</h3>
+                  <p className="text-[#515194] text-sm">Direct referrals - 10% earnings</p>
                 </div>
               </div>
-            ))}
+              <span className="text-blue-400 font-bold text-lg">
+                {tier1Earnings.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })} SP
+              </span>
+            </div>
+            {tier1Referrals.length > 0 ? (
+              <div className="space-y-3">
+                {tier1Referrals.map((user: any, idx: number) => (
+                  <motion.div
+                    key={idx}
+                    className="flex items-center justify-between p-3 bg-[#1E1E3F] rounded-xl border border-blue-500/20"
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="bg-blue-500/20 rounded-full p-2">
+                        <User className="w-5 h-5 text-blue-400" />
+                      </div>
+                      <div>
+                        <p className="text-white font-medium">{user.username}</p>
+                        <p className="text-[#515194] text-xs">
+                          Joined {new Date(user.joinedAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-green-400 font-medium">
+                        +{user.earnings.toFixed(2)} SP
+                      </p>
+                      <p className="text-[#515194] text-xs">Your earnings</p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-[#515194]">
+                <User className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>No direct referrals yet</p>
+              </div>
+            )}
+          </div>
+
+          {/* Tier 2 - Count & Earnings Only (Privacy) */}
+          <div className="bg-[#161628] rounded-2xl p-4 sm:p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Users className="w-6 h-6 text-purple-400" />
+                <div>
+                  <h3 className="text-white font-medium">Second Tier</h3>
+                  <p className="text-[#515194] text-sm">Indirect referrals - 5% earnings</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-purple-400 font-bold text-lg">
+                  {tier2Earnings.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })} SP
+                </p>
+                <p className="text-[#515194] text-sm">{tier2Count} referrals</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Tier 3 - Count & Earnings Only (Privacy) */}
+          <div className="bg-[#161628] rounded-2xl p-4 sm:p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Users className="w-6 h-6 text-amber-400" />
+                <div>
+                  <h3 className="text-white font-medium">Third Tier</h3>
+                  <p className="text-[#515194] text-sm">Extended network - 2.5% earnings</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-amber-400 font-bold text-lg">
+                  {tier3Earnings.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })} SP
+                </p>
+                <p className="text-[#515194] text-sm">{tier3Count} referrals</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Total Referral Rewards Summary */}
+          <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 rounded-2xl p-6 border border-blue-500/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-500/30 rounded-full p-3">
+                  <TrendingUp className="w-6 h-6 text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-white font-semibold text-lg">Total Referral Rewards</h3>
+                  <p className="text-blue-300 text-sm">Earnings from all tiers</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-green-400 font-bold text-2xl">
+                  {totalReferralEarnings.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })} SP
+                </p>
+                <p className="text-blue-300 text-sm">
+                  {(referralStats?.tier1?.count ?? 0) + tier2Count + tier3Count} total referrals
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -63,11 +63,7 @@ export const useNodeController = () => {
         const hasActiveSession = d.sessionToken !== null && d.sessionToken !== undefined;
         const deviceStatus = hasActiveSession ? "online" : "offline";
         
-        // ⚠️ BACKEND BUG: reward_tier coming as null
         const tier = d.reward_tier || d.rewardTier || d.hardware_tier || "cpu";
-        if (!d.reward_tier) {
-          console.warn(`⚠️ Backend returned NULL reward_tier for device ${d.id}, using fallback: ${tier}`);
-        }
         
         return {
           id: d.id,
@@ -84,7 +80,7 @@ export const useNodeController = () => {
         setSelectedNodeId(mappedDevices[0].id);
       }
     } catch (error) {
-      console.error("❌ Failed to fetch devices:", error);
+      // Error handled silently
     } finally {
       setIsLoadingDevices(false);
     }
@@ -93,32 +89,19 @@ export const useNodeController = () => {
   const fetchEarnings = useCallback(async () => {
     if (!user?.id) return;
     try {
-      console.log("📊 Fetching earnings from backend...");
       const earnings = await earningsService.getEarnings();
-      console.log("📊 Backend earnings response:", earnings);
       
       if (earnings && typeof earnings === 'object') {
-        // ⚠️ BACKEND BUG: Check if correct fields exist
         const balance = earnings.total_balance || 0;
         const unclaimed = earnings.total_unclaimed_reward || 0;
         
-        // Warn if backend returns wrong structure
-        if (!earnings.total_balance && earnings.total_earnings !== undefined) {
-          console.error("❌ BACKEND BUG: Returning 'total_earnings' instead of 'total_balance'!");
-          console.error("❌ Expected: { total_balance, total_unclaimed_reward }");
-          console.error("❌ Got:", earnings);
-        }
-        
-        console.log(`💰 Setting state: Balance=${balance}, Unclaimed=${unclaimed}`);
         setTotalEarnings(balance);
         setUnclaimedRewards(unclaimed);
       } else {
-        console.warn("⚠️ Invalid earnings response, resetting to 0");
         setTotalEarnings(0);
         setUnclaimedRewards(0);
       }
     } catch (error) {
-      console.error("❌ Failed to fetch earnings:", error);
       setTotalEarnings(0);
       setUnclaimedRewards(0);
     }
@@ -134,9 +117,8 @@ export const useNodeController = () => {
       await nodeControlService.syncUptime(selectedNodeId, timeRemaining);
       // 🔒 Update SessionManager timestamp (keep-alive)
       SessionManager.updateSessionTimestamp(selectedNodeId);
-      console.log(`✅ Uptime synced: ${timeRemaining}s remaining (from ${remainingUptime}s max)`);
     } catch (error) {
-      console.warn("⚠️ Uptime sync failed:", error);
+      // Error handled silently
     }
   };
 
@@ -161,18 +143,11 @@ export const useNodeController = () => {
         memory_gb: typeof hardwareInfo.deviceMemory === 'number' ? hardwareInfo.deviceMemory : undefined,
       };
       
-      console.log("📤 FRONTEND SENDING TO BACKEND:", payload);
-      console.log("🎯 Hardware Tier Being Sent:", hardwareInfo.rewardTier);
-      
       const device = await deviceService.registerDevice(payload);
-      
-      console.log("📥 BACKEND RESPONSE:", device);
-      console.log("⚠️ Tier Received Back:", device.hardware_tier);
       
       await fetchDevices();
       setSelectedNodeId(device.id);
     } catch (error) {
-      console.error("❌ Failed to register device:", error);
       toast.error("Failed to register device. Please try again.");
     }
   };
@@ -187,7 +162,7 @@ export const useNodeController = () => {
         setSelectedNodeId(remaining[0]?.id || "");
       }
     } catch (error) {
-      console.error("Failed to delete device:", error);
+      // Error handled silently
     }
   };
 
@@ -212,36 +187,29 @@ export const useNodeController = () => {
         if (taskWarmupTimeout) {
           clearTimeout(taskWarmupTimeout);
           setTaskWarmupTimeout(null);
-          console.log("Cancelled pending task warmup timeout");
         }
         taskWarmupService.cancelWarmup();
         
         // 2.5. FIXED: Clear all tasks from Redux to prevent ghost tasks
         const { resetTasks } = await import('@/lib/store/slices/taskSlice');
         dispatch(resetTasks());
-        console.log("Tasks cleared from Redux");
 
         // 3. Final uptime sync to backend before stopping
-        console.log("Syncing final uptime to backend...");
         const finalRemaining = Math.max(0, remainingUptime - currentUptime);
         try {
           await nodeControlService.syncUptime(selectedNodeId, finalRemaining);
-          console.log(`✅ Final remaining: ${finalRemaining}s`);
         } catch (err) {
-          console.warn("⚠️ Final uptime sync failed, continuing stop...");
+          // Error handled silently
         }
 
         // 4. ✅ CRITICAL: Stop node in Redux FIRST (prevents warmup from starting tasks)
         dispatch(stopNode());
-        console.log("✅ Node stopped in Redux (blocks task generation)");
         
         // 5. Stop task engine (prevents more tasks from processing)
         const { stopTaskEngine } = await import('@/lib/store/taskEngine');
         stopTaskEngine();
-        console.log("✅ Task engine stopped");
         
         // 6. Stop session with DB cleanup validation
-        console.log(`🛑 Stopping node session with token: ${sessionToken ? 'EXISTS' : 'NULL'}`);
         await nodeControlService.stopSession(selectedNodeId, sessionToken);
         setSessionToken(null);
         setRemainingUptime(0);
@@ -252,9 +220,8 @@ export const useNodeController = () => {
         
         // 7. Refresh devices to confirm session cleared
         await fetchDevices();
-        console.log("✅ Node stopped successfully");
       } catch (error) {
-        console.error("Failed to stop node:", error);
+        // Error handled silently
       } finally {
         setIsStopping(false);
       }
@@ -262,7 +229,6 @@ export const useNodeController = () => {
       // Starting a node (either first device or additional device)
       if (isStartingDifferentDevice) {
         // 🚀 MULTI-DEVICE: User wants to start a different device while one is running
-        console.log(`🔀 Starting different device (${selectedNodeId}) while ${runningDeviceId} is running`);
         toast.info(`Device ${runningDeviceId?.substring(0, 8)}... will continue running in background`);
       }
       
@@ -293,15 +259,13 @@ export const useNodeController = () => {
         // CRITICAL FIX: If uptime > maxUptime, it means backend was accumulating (bug)
         // Reset to full allowance and sync to backend
         if (dbRemainingTime > limits.maxUptime) {
-          console.warn(`⚠️ Uptime corrupted (${dbRemainingTime}s > ${limits.maxUptime}s)! Resetting to full allowance.`);
           dbRemainingTime = limits.maxUptime;
           
           // Sync corrected value to backend immediately
           try {
             await nodeControlService.syncUptime(selectedNodeId, limits.maxUptime);
-            console.log(`✅ Reset uptime to ${limits.maxUptime}s in database`);
           } catch (err) {
-            console.warn("⚠️ Failed to reset uptime in DB");
+            // Error handled silently
           }
         }
         
@@ -326,7 +290,6 @@ export const useNodeController = () => {
 
         // 4. Start fresh session
         const token = await nodeControlService.startSession(selectedNodeId, activeTabId || '');
-        console.log(`🔑 Session token received: ${token ? 'EXISTS' : 'NULL'}`);
         setSessionToken(token);
         setRemainingUptime(dbRemainingTime); // Set countdown timer
         
@@ -355,21 +318,11 @@ export const useNodeController = () => {
         // 6. Start node in Redux (resets currentUptime to 0)
         dispatch(startNode());
         
-        const formatTime = (sec: number) => {
-          const h = Math.floor(sec / 3600);
-          const m = Math.floor((sec % 3600) / 60);
-          return `${h}h ${m}m`;
-        };
-        console.log(`⏱️ Node started. Time remaining: ${formatTime(dbRemainingTime)} (${dbRemainingTime}s)`);
-        
         // 7. Refresh devices to get updated status
         await fetchDevices();
         
-        console.log("✅ Node session started successfully. Initializing task pipeline...");
-        
         // 8. ✅ FIXED: Delayed warmup - let stop cancel via clearTimeout only
         const warmupTimeoutId = setTimeout(() => {
-          console.log("⏰ Starting task warmup service...");
           taskWarmupService.startWithWarmup({
             nodeId: selectedNodeId,
             hardwareTier: limits.maxUptime >= 14400 ? 'webgpu' : 'cpu',
@@ -383,13 +336,11 @@ export const useNodeController = () => {
           }, 60000);
           setUptimeInterval(interval);
           
-          console.log("✅ Task pipeline initialized");
           setTaskWarmupTimeout(null); // Clear after execution
         }, 4000); // Combined delay (4 seconds)
         
         setTaskWarmupTimeout(warmupTimeoutId);
       } catch (error: any) {
-        console.error("Failed to start node:", error);
         if (error.message?.includes("already has an active session")) {
           toast.error("Session conflict detected. Please refresh and try again.");
           nodeControlService.clearLocalSession(selectedNodeId);
@@ -401,7 +352,8 @@ export const useNodeController = () => {
   };
   
   const handleTakeOverSession = async () => {
-    if (!selectedNodeId || !otherTabSessionInfo || !selectedNode) return;
+    // ✅ FIXED: Allow takeover even if otherTabSessionInfo is null (for cross-browser sessions)
+    if (!selectedNodeId || !selectedNode) return;
     
     setIsStarting(true);
     try {
@@ -412,12 +364,11 @@ export const useNodeController = () => {
       const dbRemainingTime = device?.uptime || limits.maxUptime;
       
       // 🔥 USE BACKEND force_takeover FEATURE (stops old session automatically)
-      console.log('🔄 Force takeover using backend force_takeover=true');
       const token = await nodeControlService.startSession(selectedNodeId, activeTabId || '', true); // force_takeover = true
       setSessionToken(token);
       setRemainingUptime(dbRemainingTime);
       
-      // 🔒 Take over session from other tab
+      // 🔒 Take over session (works for both same-browser and cross-browser sessions)
       SessionManager.takeOverSession(selectedNodeId, token || '', new Date().toISOString());
       setRunningDeviceId(selectedNodeId); // Track which device is running
       toast.info('Session transferred to this tab successfully');
@@ -425,6 +376,21 @@ export const useNodeController = () => {
       setIsViewOnlyMode(false);
       setOtherTabSessionInfo(null);
       setShowMultiTabDialog(false); // Close dialog
+      
+      // Register device hardware if needed
+      if (selectedNode) {
+        const deviceType = (selectedNode.device_type || 'desktop') as 'desktop' | 'laptop' | 'tablet' | 'mobile';
+        const deviceGroup = (deviceType === 'mobile' || deviceType === 'tablet') ? 'mobile_tablet' : 'desktop_laptop';
+        
+        dispatch(registerDevice({
+          cpuCores: 4,
+          deviceMemory: '8GB',
+          deviceType: deviceType,
+          gpuInfo: selectedNode.gpu_model || 'Unknown GPU',
+          deviceGroup: deviceGroup,
+          rewardTier: selectedNode.hardware_tier as 'webgpu' | 'wasm' | 'webgl' | 'cpu',
+        }));
+      }
       
       // 3. Start node
       dispatch(startNode());
@@ -444,7 +410,6 @@ export const useNodeController = () => {
       
       await fetchDevices();
     } catch (error) {
-      console.error("Failed to take over session:", error);
       toast.error("Failed to start node. Please try again.");
     } finally {
       setIsStarting(false);
@@ -464,14 +429,11 @@ export const useNodeController = () => {
         setTotalEarnings(newEarnings);
         setUnclaimedRewards(0);
         dispatch(resetSessionEarnings());
-        
-        console.log(`✅ Claimed ${result.claimed_amount} SP, new total: ${newEarnings} SP`);
       }
       
       // Refresh from backend to sync
       await fetchEarnings();
     } catch (error) {
-      console.error("❌ Failed to claim rewards:", error);
       toast.error("Failed to claim rewards. Please try again.");
     } finally {
       setIsClaiming(false);
@@ -485,7 +447,6 @@ export const useNodeController = () => {
     // 🔒 Initialize SessionManager with unique tab ID
     const tabId = SessionManager.initializeTab();
     setActiveTabId(tabId);
-    console.log('🆔 Tab initialized with ID:', tabId);
     
     let hasStoppedNode = false;
     
@@ -545,7 +506,6 @@ export const useNodeController = () => {
   // ✅ FIXED: Fetch initial data only once on mount (removed functions from deps)
   useEffect(() => {
     if (user?.id && isMounted) {
-      console.log("🔄 User mounted, fetching initial data...");
       fetchDevices();
       fetchEarnings();
     }
@@ -574,7 +534,6 @@ export const useNodeController = () => {
     
     // Setup listener to detect when another tab takes over THIS device's session
     const cleanup = SessionManager.setupTakeoverListener(selectedNodeId, () => {
-      console.log('🚨 Another tab took over this session! Stopping node...');
       toast.warning('Session taken over by another tab');
       
       // Force stop this tab's node immediately
@@ -603,7 +562,6 @@ export const useNodeController = () => {
       const timeLeft = remainingUptime - currentUptime;
       
       if (timeLeft <= 0) {
-        console.warn("⏱️ Time limit reached! Auto-stopping node...");
         toast.info("Daily time limit reached. Node stopped automatically.");
         toggleNodeStatus(); // This will stop the node
       }

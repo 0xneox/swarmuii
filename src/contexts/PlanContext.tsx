@@ -61,14 +61,12 @@ export function PlanProvider({ children }: PlanProviderProps) {
       setPlanDetails(getTierByName(planName));
       setLastSynced(new Date());
       setError(null);
-      console.log(`✅ User plan loaded: ${planName}`, response.data.data);
     } catch (err) {
       console.error('Plan fetch error:', err);
       // Fallback to free plan if endpoint not implemented yet
-      setError(null); // Don't show error for now
+      setError(null);
       setCurrentPlan('free');
       setPlanDetails(freeSubscriptionTier);
-      console.warn('⚠️ Using free plan as fallback');
     } finally {
       setIsLoading(false);
     }

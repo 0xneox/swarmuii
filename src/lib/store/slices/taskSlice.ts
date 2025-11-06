@@ -62,11 +62,12 @@ const taskSlice = createSlice({
   name: 'tasks',
   initialState: loadTaskState(),
   reducers: {
-    generateTasks: (state, action: PayloadAction<{ nodeId: string; hardwareTier: string }>) => {
-      const { nodeId, hardwareTier } = action.payload;
+    generateTasks: (state, action: PayloadAction<{ nodeId: string; hardwareTier: string; plan?: string }>) => {
+      const { nodeId, hardwareTier, plan = 'free' } = action.payload;
       
-      // ✅ PLAN-BASED: Use free tier config by default (engine will handle plan-specific logic)
-      const config = TASK_CONFIG.GENERATION.free;
+      // ✅ CRITICAL FIX: Use plan from payload, not hardcoded free tier
+      const planKey = plan.toLowerCase() as 'free' | 'basic' | 'ultimate' | 'enterprise';
+      const config = TASK_CONFIG.GENERATION[planKey] || TASK_CONFIG.GENERATION.free;
       
       // Check if we should generate more tasks
       const currentPendingCount = state.tasks.filter(task => task.status === 'pending').length;
@@ -128,26 +129,29 @@ const taskSlice = createSlice({
       saveTaskState(state);
     },
     
-    startProcessingTasks: (state, action: PayloadAction<string>) => {
-      const hardwareTier = action.payload;
+    startProcessingTasks: (state, action: PayloadAction<{ hardwareTier: string; plan?: string }>) => {
+      const { hardwareTier, plan = 'free' } = action.payload;
       
       // Start processing pending tasks (max concurrent limit)
       const pendingTasks = state.tasks.filter(task => task.status === 'pending');
       const processingTasks = state.tasks.filter(task => task.status === 'processing');
       
-      // ✅ PLAN-BASED: Get config from free tier by default (will be overridden by engine)
-      const config = TASK_CONFIG.GENERATION.free;
+      // ✅ CRITICAL FIX: Use plan from payload
+      const planKey = plan.toLowerCase() as 'free' | 'basic' | 'ultimate' | 'enterprise';
+      const config = TASK_CONFIG.GENERATION[planKey] || TASK_CONFIG.GENERATION.free;
       
       const canProcess = Math.min(
         config.MAX_CONCURRENT_PROCESSING - processingTasks.length,
         pendingTasks.length
       );
       
+      const now = new Date().toISOString();
+      
       for (let i = 0; i < canProcess; i++) {
         const task = pendingTasks[i];
         task.status = 'processing';
-        task.processing_start = new Date().toISOString();
-        task.updated_at = new Date().toISOString();
+        task.processing_start = now; // ✅ Use same timestamp for all tasks started together
+        task.updated_at = now;
         
         state.stats.pending--;
         state.stats.processing++;
